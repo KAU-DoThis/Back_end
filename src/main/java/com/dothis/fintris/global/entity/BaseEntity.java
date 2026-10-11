@@ -24,7 +24,6 @@ public abstract class BaseEntity {
     private LocalDateTime createdAt;
 
     @UpdateTimestamp
-    @Column(insertable = false) // 삽입시 관여 X
     private LocalDateTime updatedAt;
 }
 
