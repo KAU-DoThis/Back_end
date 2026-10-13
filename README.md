@@ -72,19 +72,79 @@ cd Back_end
 ## 🗂 Folder Structure
 
 ```
-src/
-├── common/
-│   ├── exception/    전역 예외 처리, 에러 코드
-│   ├── security/     Spring Security, JWT 필터
-│   ├── response/     공통 응답 형식
-│   └── config/       설정
-├── auth/             로그인, JWT 발급·검증
-├── user/             회원, 온보딩 정보
-├── connection/       금융기관 연결, 연결 상태, connectedId
-├── transaction/      거래 수집·정규화·분류, 소비 통계·패턴 분석, 조정 가능 지출 후보 산출
-├── block/            블록 생성·조회, 목적·규칙, 자금 배분, 블록 간 금액 이동
-├── goal/             목표 금액·기간, 월 필요 금액·부족 금액, 달성률 계산
-└── suggestion/       AI 서버 호출, 절약 행동 제안·설명, 수락·수정·제외
+back_end/
+├── build.gradle                ← package.json
+├── .env                        ← DB 접속 정보 (git 제외)
+└── src/main/
+    ├── resources/
+    │   ├── application.yaml    ← 설정 파일
+    │   └── data.sql            ← [새로] 카테고리 시드 16개
+    │
+    └── java/com/dothis/fintris/
+        ├── FintrisApplication.java      ← 진입점 (건드릴 일 없음)
+        │
+        ├── global/                      ← 공통 (이미 있음)
+        │   ├── api/
+        │   │   ├── ApiResponse.java          ← 모든 응답 감싸는 틀   [#4 수정]
+        │   │   ├── code/
+        │   │   │   ├── BaseErrorCode.java     ← 에러코드 인터페이스
+        │   │   │   ├── BaseSuccessCode.java
+        │   │   │   ├── GeneralErrorCode.java  ← 공통 에러 (400, 404, 500)
+        │   │   │   ├── GeneralSuccessCode.java← S200, S201            [#4 수정]
+        │   │   │   └── ReasonDTO.java
+        │   │   └── handler/
+        │   │       └── GlobalSuccessHandler.java
+        │   ├── config/
+        │   │   └── WebConfig.java            ← [새로] /api/v1 접두사  [#4]
+        │   ├── entity/
+        │   │   └── BaseEntity.java           ← createdAt, updatedAt 공통
+        │   └── exception/
+        │       ├── GeneralException.java     ← throw 할 때 쓰는 예외
+        │       └── GlobalExceptionHandler.java ← 에러 미들웨어
+        │
+        ├── user/                        ← [새로] #5 프로필
+        │   ├── controller/
+        │   │   └── ProfileController.java
+        │   ├── service/
+        │   │   └── ProfileService.java
+        │   ├── repository/
+        │   │   └── ProfileRepository.java
+        │   ├── entity/
+        │   │   ├── User.java                 ← 지현이 형과 누가 만들지 확인
+        │   │   └── Profile.java
+        │   ├── dto/
+        │   │   ├── ProfileRequest.java       ← 등록·수정 요청 body
+        │   │   └── ProfileResponse.java      ← 응답 모양
+        │   └── code/
+        │       └── ProfileErrorCode.java     ← PROFILE_NOT_FOUND 등
+        │
+        ├── category/                    ← [새로] 블록에 필요
+        │   ├── entity/
+        │   │   └── Category.java
+        │   └── repository/
+        │       └── CategoryRepository.java
+        │
+        └── block/                       ← [새로] #6 블록
+            ├── controller/
+            │   └── BlockController.java
+            ├── service/
+            │   └── BlockService.java
+            ├── repository/
+            │   ├── BlockRepository.java
+            │   ├── BlockCategoryRepository.java
+            │   └── BlockRuleRepository.java
+            ├── entity/
+            │   ├── Block.java
+            │   ├── BlockType.java            ← enum: SPENDING, GOAL, FIXED
+            │   ├── BlockCategory.java
+            │   └── BlockRule.java
+            ├── dto/
+            │   ├── BlockCreateRequest.java
+            │   ├── BlockUpdateRequest.java
+            │   ├── BlockOrderRequest.java
+            │   └── BlockResponse.java
+            └── code/
+                └── BlockErrorCode.java       ← BLOCK_NOT_FOUND 등
 ```
 
 <br>
