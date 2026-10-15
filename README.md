@@ -166,33 +166,48 @@ DELETE /api/v1/{domain}/{id}
 
 ### 응답 형식
 
+모든 응답은 `ApiResponse`로 감싼다. HTTP 상태 코드는 바디에 넣지 않고 응답 상태로만 내려간다.
+
 **성공**
 
 ```json
 {
-  "statusCode": 200,
-  "timestamp": "2026-10-04T19:40:00+09:00",
-  "path": "/api/v1/blocks/summary",
-  "message": "요청이 성공했습니다.",
-  "data": { },
-  "error": null
+  "isSuccess": true,
+  "code": "S200",
+  "message": "요청에 성공했습니다.",
+  "result": { }
 }
 ```
+
+| 코드 | HTTP | 사용 |
+| --- | --- | --- |
+| `S200` | 200 | 조회·수정·삭제 |
+| `S201` | 201 | 생성 |
 
 **실패**
 
 ```json
 {
-  "statusCode": 400,
-  "timestamp": "2026-10-04T19:40:00+09:00",
-  "path": "/api/v1/blocks/transfers",
+  "isSuccess": false,
+  "code": "BLOCK_INSUFFICIENT_AMOUNT",
   "message": "이동할 금액이 블록 잔액보다 큽니다.",
-  "data": null,
-  "error": "BLOCK_INSUFFICIENT_AMOUNT"
+  "result": null
 }
 ```
 
-에러 코드는 `도메인_원인` 형식으로 작성한다. (예: `GOAL_NOT_FOUND`, `AUTH_INVALID_TOKEN`)
+요청 값 검증에 실패하면 `code`는 `COMMON_BAD_REQUEST`이고, `result`에 `{ "필드명": "사유" }`가 담긴다.
+
+### 에러 코드
+
+- `도메인_원인` 형식으로 작성한다. (예: `GOAL_NOT_FOUND`, `AUTH_INVALID_TOKEN`)
+- 도메인별 코드는 각 도메인 패키지에 `BaseErrorCode`를 구현한 enum으로 정의한다. (예: `BlockErrorCode`)
+- enum 상수명과 `code` 문자열을 같게 쓴다.
+- 도메인에 속하지 않는 공통 코드는 `GeneralErrorCode`의 `COMMON_*`를 쓴다.
+- 서비스에서는 `throw GeneralException.of(BlockErrorCode.BLOCK_NOT_FOUND)`로 던진다.
+
+### 경로 접두사
+
+`/api/v1`은 `WebConfig`가 모든 `@RestController`에 자동으로 붙인다. 컨트롤러에는 `@RequestMapping("/blocks")`처럼 접두사 없이 쓴다.
 
 <br>
 

@@ -19,9 +19,9 @@ public class ApiResponse<T> { // API 응답
 
     @Schema(description = "성공 여부", example = "true")
     private final Boolean isSuccess; // 성공 여부
-    @Schema(description = "비즈니스 코드", example = "COMMON_200")
+    @Schema(description = "비즈니스 코드", example = "S200")
     private final String code; // 응답 코드
-    @Schema(description = "메시지", example = "성공입니다.")
+    @Schema(description = "메시지", example = "요청에 성공했습니다.")
     private final String message; // 메세지
     @JsonInclude(JsonInclude.Include.ALWAYS)
     @Schema(description = "응답 데이터 (실패 시 보통 null)")
