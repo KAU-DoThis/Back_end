@@ -84,4 +84,31 @@ public class Block extends BaseEntity {
     private Long version;
 
     private LocalDateTime deletedAt;
+
+    public boolean isOwnedBy(Long userId) {
+        return user.getId().equals(userId);
+    }
+
+    // null인 값은 바꾸지 않는다 (PATCH)
+    public void update(String name, String icon, Long targetAmount,
+                       LocalDate startDate, LocalDate dueDate, BlockRule rule) {
+        if (name != null) this.name = name;
+        if (icon != null) this.icon = icon;
+        if (targetAmount != null) this.targetAmount = targetAmount;
+        if (startDate != null) this.startDate = startDate;
+        if (dueDate != null) this.dueDate = dueDate;
+        if (rule != null) this.rule = rule;
+    }
+
+    public void changeOrder(int displayOrder) {
+        this.displayOrder = displayOrder;
+    }
+
+    // 소프트 삭제. 잔액은 0으로 만들고, 미배분으로 돌려보낼 금액을 반환한다
+    public long delete(LocalDateTime now) {
+        long returned = this.balance;
+        this.balance = 0;
+        this.deletedAt = now;
+        return returned;
+    }
 }

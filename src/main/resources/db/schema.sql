@@ -9,7 +9,7 @@
 --  - 공통 컬럼 created_at, updated_at (이력·로그 테이블은 created_at만)
 --  - 금액은 BIGINT(원 단위), FK는 걸되 CASCADE 없음
 --
--- TBD (김지현과 확정 필요)
+-- TBD
 --  - linked_accounts를 connections / linked_accounts로 나눌지 → 지금은 한 테이블
 --  - saving_suggestions 저장 여부 → 맨 아래 주석으로만 둠
 --  - user_settings.nickname 필요 여부 → NULL 허용으로 둠
