@@ -86,7 +86,8 @@ public class BlockService {
             dueDate = startDate.with(TemporalAdjusters.lastDayOfMonth());
         }
 
-        validate(request.type(), request.targetAmount(), startDate, dueDate, request.rule(), today);
+        validateNewDueDate(request.dueDate(), today);
+        validate(request.type(), request.targetAmount(), startDate, dueDate, request.rule());
 
         // 새 블록은 맨 뒤에 둔다
         int nextOrder = blockRepository.findTopByUser_IdAndDeletedAtIsNullOrderByDisplayOrderDesc(userId)
@@ -119,7 +120,8 @@ public class BlockService {
         LocalDate startDate = (request.startDate() != null) ? request.startDate() : block.getStartDate();
         LocalDate dueDate = (request.dueDate() != null) ? request.dueDate() : block.getDueDate();
         BlockRule rule = (request.rule() != null) ? request.rule() : block.getRule();
-        validate(block.getType(), targetAmount, startDate, dueDate, rule, LocalDate.now(KST));
+        validateNewDueDate(request.dueDate(), LocalDate.now(KST));
+        validate(block.getType(), targetAmount, startDate, dueDate, rule);
 
         block.update(request.name(), request.icon(), request.targetAmount(),
                 request.startDate(), request.dueDate(), request.rule());
@@ -212,13 +214,21 @@ public class BlockService {
         return BlockResponse.of(block, blockCategoryRepository.findAllByBlock_Id(block.getId()));
     }
 
-    // F-04 예외 처리: 목표 금액 0 이하, 기한이 오늘 이전, 납부일 1~31 밖이면 저장하지 않는다
+    // 기한이 오늘 이전인지는 클라이언트가 새로 보낸 기한에만 검사한다.
+    // 저장된 기한까지 검사하면 기한이 지난 블록은 이름만 바꾸는 수정도 실패한다
+    private void validateNewDueDate(LocalDate requestedDueDate, LocalDate today) {
+        if (requestedDueDate != null && requestedDueDate.isBefore(today)) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_DUE_DATE);
+        }
+    }
+
+    // F-04 예외 처리: 목표 금액 0 이하, 기한이 시작일 이전, 납부일 1~31 밖이면 저장하지 않는다
     private void validate(BlockType type, Long targetAmount, LocalDate startDate,
-                          LocalDate dueDate, BlockRule rule, LocalDate today) {
+                          LocalDate dueDate, BlockRule rule) {
         if (targetAmount != null && targetAmount <= 0) {
             throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET);
         }
-        if (dueDate != null && (dueDate.isBefore(today) || dueDate.isBefore(startDate))) {
+        if (dueDate != null && dueDate.isBefore(startDate)) {
             throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_DUE_DATE);
         }
         if (rule != null && rule.payDay() != null && (rule.payDay() < 1 || rule.payDay() > 31)) {
