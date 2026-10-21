@@ -14,7 +14,8 @@ public enum AuthErrorCode implements BaseErrorCode {
     AUTH_ACCOUNT_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "AUTH_ACCOUNT_LOCKED", "로그인 시도가 5회 연속 실패해 10분간 로그인할 수 없습니다."),
     AUTH_INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_INVALID_REFRESH_TOKEN", "유효하지 않은 리프레시 토큰입니다."),
     AUTH_KAKAO_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "AUTH_KAKAO_UNAUTHORIZED", "유효하지 않은 카카오 토큰입니다."),
-    AUTH_KAKAO_API_FAILED(HttpStatus.BAD_GATEWAY, "AUTH_KAKAO_API_FAILED", "카카오 서버 응답에 실패했습니다.");
+    AUTH_KAKAO_API_FAILED(HttpStatus.BAD_GATEWAY, "AUTH_KAKAO_API_FAILED", "카카오 서버 응답에 실패했습니다."),
+    AUTH_KAKAO_EMAIL_REQUIRED(HttpStatus.BAD_REQUEST, "AUTH_KAKAO_EMAIL_REQUIRED", "카카오 계정의 이메일 제공에 동의해야 합니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

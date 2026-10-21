@@ -1,11 +1,15 @@
 package com.dothis.fintris.auth.service;
 
+import com.dothis.fintris.auth.client.KakaoApiClient;
 import com.dothis.fintris.auth.code.AuthErrorCode;
+import com.dothis.fintris.auth.dto.KakaoLoginResponse;
 import com.dothis.fintris.auth.dto.LoginRequest;
 import com.dothis.fintris.auth.dto.SignupRequest;
 import com.dothis.fintris.auth.dto.TokenResponse;
 import com.dothis.fintris.auth.entity.RefreshToken;
+import com.dothis.fintris.auth.entity.SocialAccount;
 import com.dothis.fintris.auth.repository.RefreshTokenRepository;
+import com.dothis.fintris.auth.repository.SocialAccountRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.global.security.JwtTokenProvider;
 import com.dothis.fintris.user.code.UserErrorCode;
@@ -14,8 +18,10 @@ import com.dothis.fintris.user.entity.User;
 import com.dothis.fintris.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -31,6 +37,9 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final SocialAccountRepository socialAccountRepository;
+    private final KakaoApiClient kakaoApiClient;
+    private final ObjectProvider<AuthService> self; // 프록시를 거쳐 트랜잭션을 적용하기 위해 사용
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -69,6 +78,49 @@ public class AuthService {
         return issueTokens(user);
     }
 
+    // 카카오 API 호출 동안 DB 트랜잭션을 잡고 있지 않도록 트랜잭션 밖에서 조회한 뒤 저장만 트랜잭션으로 처리한다
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public KakaoLoginResponse loginKakao(String kakaoAccessToken) {
+        KakaoApiClient.KakaoUserInfo kakaoUser = kakaoApiClient.getUserInfo(kakaoAccessToken);
+        return self.getObject().completeLoginKakao(kakaoUser);
+    }
+
+    @Transactional
+    public KakaoLoginResponse completeLoginKakao(KakaoApiClient.KakaoUserInfo kakaoUser) {
+        LocalDateTime now = LocalDateTime.now();
+        SocialAccount existing = socialAccountRepository
+                .findByProviderAndProviderUserId(AuthProvider.KAKAO, kakaoUser.providerUserId())
+                .orElse(null);
+        if (existing != null) {
+            User user = existing.getUser();
+            if (user.getDeletedAt() != null) {
+                throw GeneralException.of(UserErrorCode.USER_NOT_FOUND);
+            }
+            user.recordLoginSuccess(now);
+            return toKakaoResponse(issueTokens(user), false);
+        }
+
+        if (kakaoUser.email() == null || kakaoUser.email().isBlank()) {
+            throw GeneralException.of(AuthErrorCode.AUTH_KAKAO_EMAIL_REQUIRED);
+        }
+        String email = normalize(kakaoUser.email());
+        // 같은 이메일의 기존 계정과는 자동으로 합치지 않는다(계정 탈취 방지)
+        if (userRepository.findByEmail(email).isPresent()) {
+            throw GeneralException.of(AuthErrorCode.AUTH_EMAIL_DUPLICATED);
+        }
+        User user = userRepository.save(User.builder()
+                .email(email)
+                .authProvider(AuthProvider.KAKAO)
+                .build());
+        socialAccountRepository.save(SocialAccount.builder()
+                .user(user)
+                .provider(AuthProvider.KAKAO)
+                .providerUserId(kakaoUser.providerUserId())
+                .build());
+        user.recordLoginSuccess(now);
+        return toKakaoResponse(issueTokens(user), true);
+    }
+
     // 사용한 리프레시 토큰은 폐기하고 새로 발급한다(재사용 방지)
     @Transactional
     public TokenResponse reissue(String refreshToken) {
@@ -98,6 +150,10 @@ public class AuthService {
                 .expiresAt(LocalDateTime.now().plusSeconds(jwtTokenProvider.getRefreshExpMs() / 1000))
                 .build());
         return new TokenResponse(accessToken, refreshToken);
+    }
+
+    private static KakaoLoginResponse toKakaoResponse(TokenResponse tokens, boolean isNewUser) {
+        return new KakaoLoginResponse(tokens.accessToken(), tokens.refreshToken(), isNewUser);
     }
 
     private static String normalize(String email) {
