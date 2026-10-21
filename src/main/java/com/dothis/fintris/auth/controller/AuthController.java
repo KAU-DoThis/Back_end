@@ -1,5 +1,7 @@
 package com.dothis.fintris.auth.controller;
 
+import com.dothis.fintris.auth.dto.KakaoLoginRequest;
+import com.dothis.fintris.auth.dto.KakaoLoginResponse;
 import com.dothis.fintris.auth.dto.LoginRequest;
 import com.dothis.fintris.auth.dto.RefreshTokenRequest;
 import com.dothis.fintris.auth.dto.SignupRequest;
@@ -34,6 +36,12 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, authService.login(request));
+    }
+
+    @Operation(summary = "카카오 로그인", description = "앱에서 받은 카카오 액세스 토큰으로 로그인하고, 처음이면 가입한다")
+    @PostMapping("/kakao")
+    public ApiResponse<KakaoLoginResponse> kakaoLogin(@Valid @RequestBody KakaoLoginRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, authService.loginKakao(request.accessToken()));
     }
 
     @Operation(summary = "토큰 갱신", description = "리프레시 토큰은 한 번만 쓸 수 있고 새 토큰 쌍을 돌려준다")
