@@ -86,7 +86,8 @@ public class BlockService {
             dueDate = startDate.with(TemporalAdjusters.lastDayOfMonth());
         }
 
-        validateNewDueDate(request.dueDate(), today);
+        // 생성은 전부 새 값이므로 기본값으로 채운 기한까지 검사한다
+        validateNewDueDate(dueDate, today);
         validate(request.type(), request.targetAmount(), startDate, dueDate, request.rule());
 
         // 새 블록은 맨 뒤에 둔다
