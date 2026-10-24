@@ -27,6 +27,7 @@ import java.time.Duration;
 public class CodefApiClient {
 
     private static final String SUCCESS_CODE = "CF-00000";
+    private static final String TOKEN_EXPIRED_CODE = "CF-99997";
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
     // 기능명세서: CODEF 응답이 30초를 넘으면 백그라운드 재시도 대상으로 본다
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
@@ -49,19 +50,29 @@ public class CodefApiClient {
 
     // CODEF는 성공·실패와 관계없이 HTTP 200으로 응답하므로 결과는 result.code로 판단한다
     public CodefResponse post(String path, Object body) {
+        CodefResponse response;
         try {
-            return exchange(path, body);
+            response = exchange(path, body);
         } catch (RestClientResponseException e) {
             if (e.getStatusCode().value() != 401) {
                 throw GeneralException.of(CodefErrorCode.CODEF_API_FAILED, e);
             }
             // 토큰 만료·무효이면 캐시를 비우고 한 번만 재시도한다
-            tokenProvider.invalidate();
-            try {
-                return exchange(path, body);
-            } catch (RestClientException retryException) {
-                throw translate(retryException);
-            }
+            return retryWithNewToken(path, body);
+        } catch (RestClientException e) {
+            throw translate(e);
+        }
+        // 확인된 건 HTTP 401이지만, 토큰 만료가 200 본문으로 올 때도 같은 방식으로 한 번만 재시도한다
+        if (response.result() != null && TOKEN_EXPIRED_CODE.equals(response.result().code())) {
+            return retryWithNewToken(path, body);
+        }
+        return response;
+    }
+
+    private CodefResponse retryWithNewToken(String path, Object body) {
+        tokenProvider.invalidate();
+        try {
+            return exchange(path, body);
         } catch (RestClientException e) {
             throw translate(e);
         }
