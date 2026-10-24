@@ -13,6 +13,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -82,8 +83,13 @@ public class CodefApiClient {
         if (raw == null || raw.isBlank()) {
             throw GeneralException.of(CodefErrorCode.CODEF_API_FAILED);
         }
-        String json = raw.startsWith("{") ? raw : URLDecoder.decode(raw, StandardCharsets.UTF_8);
-        CodefResponse response = objectMapper.readValue(json, CodefResponse.class);
+        CodefResponse response;
+        try {
+            String json = raw.startsWith("{") ? raw : URLDecoder.decode(raw, StandardCharsets.UTF_8);
+            response = objectMapper.readValue(json, CodefResponse.class);
+        } catch (IllegalArgumentException | JacksonException e) {
+            throw GeneralException.of(CodefErrorCode.CODEF_API_FAILED, e);
+        }
         if (response.result() == null) {
             throw GeneralException.of(CodefErrorCode.CODEF_API_FAILED);
         }
