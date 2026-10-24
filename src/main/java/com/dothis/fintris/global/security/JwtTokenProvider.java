@@ -19,13 +19,27 @@ public class JwtTokenProvider {
     public static final String TOKEN_TYPE_ACCESS = "ACCESS";
     public static final String TOKEN_TYPE_REFRESH = "REFRESH";
 
+    private static final int MIN_SECRET_BYTES = 32;
+
     private final SecretKey key;
     private final long accessExpMs;
     private final long refreshExpMs;
 
     public JwtTokenProvider(JwtProperties jwtProperties) {
+        String secret = jwtProperties.getSecret();
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("jwt.secret 설정이 비어 있습니다.");
+        }
         // secret은 HS256 기준 32바이트 이상이어야 한다
-        this.key = Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException("jwt.secret은 UTF-8 기준 " + MIN_SECRET_BYTES + "바이트 이상이어야 합니다.");
+        }
+        if (jwtProperties.getAccessExpMs() <= 0 || jwtProperties.getRefreshExpMs() <= 0) {
+            throw new IllegalStateException("jwt.access-exp-ms와 jwt.refresh-exp-ms는 양수여야 합니다.");
+        }
+
+        this.key = Keys.hmacShaKeyFor(secretBytes);
         this.accessExpMs = jwtProperties.getAccessExpMs();
         this.refreshExpMs = jwtProperties.getRefreshExpMs();
     }
