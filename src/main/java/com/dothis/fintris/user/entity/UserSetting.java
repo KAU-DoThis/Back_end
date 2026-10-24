@@ -39,4 +39,11 @@ public class UserSetting extends BaseEntity {
 
     @Column(length = 30)
     private String nickname; // TBD: 필요 여부
+
+    // PATCH: null이 아닌 값만 바꾼다
+    public void update(Boolean onboardingDone, Boolean linkSkipped, String nickname) {
+        if (onboardingDone != null) this.onboardingDone = onboardingDone;
+        if (linkSkipped != null) this.linkSkipped = linkSkipped;
+        if (nickname != null) this.nickname = nickname;
+    }
 }
