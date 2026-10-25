@@ -29,6 +29,9 @@ dependencies {
 	//db
 	runtimeOnly 'com.mysql:mysql-connector-j'
 
+	//http client (CODEF API 호출)
+	implementation 'org.springframework.boot:spring-boot-starter-restclient'
+
 	//validation
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
