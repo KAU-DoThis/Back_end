@@ -23,7 +23,8 @@ public class HomeController {
     private final HomeService homeService;
 
     @Operation(summary = "홈 조회",
-            description = "총 자산, 미배분 잔액, 오늘 쓸 수 있는 돈, 계좌 목록. 블록 타일은 GET /blocks를 쓴다")
+            description = "API 명세 v4 5장. 총 자산, 오늘 쓸 수 있는 돈, 계좌별 카드, 나눌 돈, 블록 타일. "
+                    + "suggestion·waitingFunds·알림·질문 수는 해당 기능이 붙기 전까지 비어 있다")
     @GetMapping
     public ApiResponse<HomeResponse> getHome(
             @Parameter(description = "임시 사용자 ID") @RequestHeader("X-User-Id") Long userId) {
