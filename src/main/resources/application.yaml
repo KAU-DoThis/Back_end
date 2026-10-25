@@ -16,6 +16,14 @@ spring:
         jdbc:
           time_zone: Asia/Seoul
 
+jwt:
+  secret: ${JWT_SECRET}
+  access-exp-ms: ${JWT_ACCESS_EXP_MS:3600000} # 1시간
+  refresh-exp-ms: ${JWT_REFRESH_EXP_MS:1209600000} # 14일
+
+kakao:
+  user-info-uri: https://kapi.kakao.com/v2/user/me
+
 codef:
   base-url: ${CODEF_BASE_URL:https://development.codef.io}
   oauth-url: https://oauth.codef.io/oauth/token

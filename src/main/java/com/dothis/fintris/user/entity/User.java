@@ -55,4 +55,23 @@ public class User extends BaseEntity {
     private LocalDateTime lockedUntil;
 
     private LocalDateTime deletedAt;
+
+    public boolean isLocked(LocalDateTime now) {
+        return lockedUntil != null && lockedUntil.isAfter(now);
+    }
+
+    // 5회째 실패하면 잠그고 횟수를 초기화한다
+    public void recordLoginFailure(LocalDateTime now, int maxFailures, long lockMinutes) {
+        failedLoginCount++;
+        if (failedLoginCount >= maxFailures) {
+            lockedUntil = now.plusMinutes(lockMinutes);
+            failedLoginCount = 0;
+        }
+    }
+
+    public void recordLoginSuccess(LocalDateTime now) {
+        failedLoginCount = 0;
+        lockedUntil = null;
+        lastLoginAt = now;
+    }
 }
