@@ -62,6 +62,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(value = GeneralException.class)
     public ResponseEntity<Object> onThrowException(GeneralException generalException,
                                                    HttpServletRequest request) {
+        if (generalException.getResult() != null) {
+            BaseErrorCode code = generalException.getCode();
+            ApiResponse<Object> body = ApiResponse.onFailure(code, generalException.getResult());
+            return super.handleExceptionInternal(generalException, body, HttpHeaders.EMPTY,
+                    code.getReason().getHttpStatus(), new ServletWebRequest(request));
+        }
         return handleExceptionInternal(generalException, generalException.getCode(), null, request);
     }
 

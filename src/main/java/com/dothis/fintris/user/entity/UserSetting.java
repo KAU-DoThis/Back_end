@@ -32,18 +32,21 @@ public class UserSetting extends BaseEntity {
     private User user;
 
     @Column(nullable = false)
-    private boolean onboardingDone;
+    private boolean tutorialDone;
 
     @Column(nullable = false)
-    private boolean linkSkipped; // 계좌 연동 나중에 하기(체험 모드)
+    private boolean blocksConfirmed; // 초기 블록 확정 API가 바꾼다
 
     @Column(length = 30)
     private String nickname; // TBD: 필요 여부
 
     // PATCH: null이 아닌 값만 바꾼다
-    public void update(Boolean onboardingDone, Boolean linkSkipped, String nickname) {
-        if (onboardingDone != null) this.onboardingDone = onboardingDone;
-        if (linkSkipped != null) this.linkSkipped = linkSkipped;
+    public void update(Boolean tutorialDone, String nickname) {
+        if (tutorialDone != null) this.tutorialDone = tutorialDone;
         if (nickname != null) this.nickname = nickname;
+    }
+
+    public void confirmBlocks() {
+        this.blocksConfirmed = true;
     }
 }

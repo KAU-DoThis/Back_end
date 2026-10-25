@@ -66,7 +66,7 @@ CREATE TABLE refresh_tokens (
 CREATE TABLE consents (
     consent_id          BIGINT       NOT NULL AUTO_INCREMENT,
     user_id             BIGINT       NOT NULL,
-    item                VARCHAR(40)  NOT NULL COMMENT 'TERMS / PRIVACY / CODEF / AI_PROCESSING / NOTIFICATION_READ / PUSH / PRODUCT_INFO',
+    item                VARCHAR(40)  NOT NULL COMMENT 'TERMS / PRIVACY / CODEF / AGE_14 / MARKETING',
     agreed              TINYINT(1)   NOT NULL,
     doc_version         VARCHAR(20)  NOT NULL,
     created_at          DATETIME(6)  NOT NULL COMMENT '= changed_at',
@@ -78,8 +78,8 @@ CREATE TABLE consents (
 CREATE TABLE user_settings (
     user_setting_id     BIGINT       NOT NULL AUTO_INCREMENT,
     user_id             BIGINT       NOT NULL,
-    onboarding_done     TINYINT(1)   NOT NULL DEFAULT 0,
-    link_skipped        TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '계좌 연동 나중에 하기(체험 모드)',
+    tutorial_done       TINYINT(1)   NOT NULL DEFAULT 0,
+    blocks_confirmed    TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '초기 블록 확정 여부. 온보딩 단계는 저장하지 않고 계산한다',
     nickname            VARCHAR(30)  NULL COMMENT 'TBD: 필요 여부',
     created_at          DATETIME(6)  NOT NULL,
     updated_at          DATETIME(6)  NOT NULL,
