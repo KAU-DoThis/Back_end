@@ -23,3 +23,10 @@ jwt:
 
 kakao:
   user-info-uri: https://kapi.kakao.com/v2/user/me
+
+codef:
+  base-url: ${CODEF_BASE_URL:https://development.codef.io}
+  oauth-url: https://oauth.codef.io/oauth/token
+  client-id: ${CODEF_CLIENT_ID}
+  client-secret: ${CODEF_CLIENT_SECRET}
+  public-key: ${CODEF_PUBLIC_KEY}
