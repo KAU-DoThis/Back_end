@@ -6,11 +6,11 @@ import jakarta.persistence.Converter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-// connectedId를 DB에 저장할 때 암호화하고, 읽을 때 복호화한다
+// 문자열 컬럼을 DB에 저장할 때 암호화하고, 읽을 때 복호화한다
 @Converter
 @Component
 @RequiredArgsConstructor
-public class ConnectedIdConverter implements AttributeConverter<String, String> {
+public class EncryptedStringConverter implements AttributeConverter<String, String> {
 
     private final AesGcmEncryptor encryptor;
 

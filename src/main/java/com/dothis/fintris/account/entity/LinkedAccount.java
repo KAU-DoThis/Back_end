@@ -48,16 +48,21 @@ public class LinkedAccount extends BaseEntity {
     private LinkedAccountType type;
 
     // 암호화해서 저장하는 CODEF connectedId. 응답에 노출하지 않는다
-    @Convert(converter = ConnectedIdConverter.class)
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(nullable = false, length = 512)
     private String connectedId;
 
     @Column(length = 100)
     private String accountName;
 
+    // 거래내역 조회에 전체 계좌번호가 필요해 암호화해서 저장한다. 응답에는 노출하지 않는다
+    @Convert(converter = EncryptedStringConverter.class)
+    @Column(length = 512)
+    private String accountNumber; // 카드는 null
+
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(length = 4)
-    private String accountNumberLast4; // 계좌번호는 뒤 4자리만 저장
+    private String accountNumberLast4; // 화면 표시용
 
     private Long balance; // 카드는 null
 
