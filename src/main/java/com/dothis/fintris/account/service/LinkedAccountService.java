@@ -4,14 +4,16 @@ import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
 import com.dothis.fintris.account.dto.LinkedAccountResponse;
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.account.exception.AccountLinkRejectedException;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.codef.client.CodefAccountClient;
 import com.dothis.fintris.codef.client.CodefAccountClient.CodefAccountResult;
 import com.dothis.fintris.codef.client.CodefBankAccountClient;
-import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccount;
 import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccountsResult;
+import com.dothis.fintris.codef.client.CodefCardClient;
+import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
@@ -36,6 +38,7 @@ public class LinkedAccountService {
     private final UserRepository userRepository;
     private final CodefAccountClient codefAccountClient;
     private final CodefBankAccountClient codefBankAccountClient;
+    private final CodefCardClient codefCardClient;
 
     @Transactional(readOnly = true)
     public List<LinkedAccountResponse> getLinkedAccounts(Long userId) {
@@ -63,34 +66,51 @@ public class LinkedAccountService {
             throw toLinkException(registered.failureCode(), registered.failureMessage());
         }
 
-        BankAccountsResult fetched = codefBankAccountClient
-                .fetchDemandDepositAccounts(registered.connectedId(), institution.getCode());
+        FetchResult fetched = fetchTargets(institution, registered.connectedId(), request.birthDate());
         if (!fetched.isSuccess()) {
             throw toLinkException(fetched.failureCode(), fetched.failureMessage());
         }
-        if (fetched.accounts().isEmpty()) {
+        if (fetched.targets().isEmpty()) {
             throw GeneralException.of(AccountErrorCode.ACCOUNT_NO_ELIGIBLE_ACCOUNT);
         }
 
         LocalDateTime now = LocalDateTime.now(KST);
-        List<LinkedAccount> saved = linkedAccountRepository.saveAll(fetched.accounts().stream()
-                .map(account -> toEntity(user, institution, registered.connectedId(), account, now))
+        List<LinkedAccount> saved = linkedAccountRepository.saveAll(fetched.targets().stream()
+                .map(target -> toEntity(user, institution, registered.connectedId(), target, now))
                 .toList());
         return saved.stream().map(LinkedAccountResponse::from).toList();
     }
 
+    // 은행은 수시입출 계좌를, 카드는 보유 카드를 가져와 같은 모양으로 맞춘다
+    private FetchResult fetchTargets(SupportedInstitution institution, String connectedId, String birthDate) {
+        if (institution.getType() == LinkedAccountType.CARD) {
+            CardsResult cards = codefCardClient.fetchCards(connectedId, institution.getCode(), birthDate);
+            return new FetchResult(
+                    cards.cards().stream().map(card -> new LinkTarget(card.cardNumber(), card.cardName(), null)).toList(),
+                    cards.failureCode(), cards.failureMessage());
+        }
+        BankAccountsResult accounts = codefBankAccountClient.fetchDemandDepositAccounts(connectedId, institution.getCode());
+        return new FetchResult(
+                accounts.accounts().stream()
+                        .map(account -> new LinkTarget(account.accountNumber(), account.accountName(), account.balance()))
+                        .toList(),
+                accounts.failureCode(), accounts.failureMessage());
+    }
+
     private LinkedAccount toEntity(User user, SupportedInstitution institution, String connectedId,
-                                   BankAccount account, LocalDateTime now) {
+                                   LinkTarget target, LocalDateTime now) {
         return LinkedAccount.builder()
                 .user(user)
                 .institutionCode(institution.getCode())
                 .type(institution.getType())
                 .connectedId(connectedId)
-                .accountName(account.accountName())
-                .accountNumber(account.accountNumber())
-                .accountNumberLast4(last4(account.accountNumber()))
-                .balance(account.balance())
-                .balanceUpdatedAt(account.balance() == null ? null : now)
+                .accountName(target.name())
+                .accountNumber(target.number())
+                .accountNumberLast4(last4(target.number()))
+                .balance(target.balance())
+                .balanceUpdatedAt(target.balance() == null ? null : now)
+                // 카드는 잔액이 없어 미배분 잔액 계산에 넣지 않는다
+                .isActive(institution.getType() == LinkedAccountType.BANK)
                 .build();
     }
 
@@ -104,6 +124,16 @@ public class LinkedAccountService {
         if (ADDITIONAL_AUTH_REQUIRED.equals(code)) {
             return GeneralException.of(AccountErrorCode.ACCOUNT_ADDITIONAL_AUTH_UNSUPPORTED);
         }
-        return new AccountLinkRejectedException(message);
+        return new AccountLinkRejectedException(code, message);
+    }
+
+    private record LinkTarget(String number, String name, Long balance) {
+    }
+
+    private record FetchResult(List<LinkTarget> targets, String failureCode, String failureMessage) {
+
+        boolean isSuccess() {
+            return failureCode == null;
+        }
     }
 }

@@ -12,6 +12,9 @@ import com.dothis.fintris.codef.client.CodefAccountClient.CodefAccountResult;
 import com.dothis.fintris.codef.client.CodefBankAccountClient;
 import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccount;
 import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccountsResult;
+import com.dothis.fintris.codef.client.CodefCardClient;
+import com.dothis.fintris.codef.client.CodefCardClient.Card;
+import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.User;
@@ -44,11 +47,13 @@ class LinkedAccountServiceTest {
     private static final Long USER_ID = 1L;
     private static final String KOOKMIN = "0004";
     private static final String SHINHAN = "0088";
+    private static final String SHINHAN_CARD = "0306";
 
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock UserRepository userRepository;
     @Mock CodefAccountClient codefAccountClient;
     @Mock CodefBankAccountClient codefBankAccountClient;
+    @Mock CodefCardClient codefCardClient;
     @InjectMocks LinkedAccountService service;
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
@@ -153,6 +158,7 @@ class LinkedAccountServiceTest {
         assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
                 .isInstanceOfSatisfying(AccountLinkRejectedException.class, e -> {
                     assertThat(e.getCode()).isEqualTo(AccountErrorCode.ACCOUNT_LINK_REJECTED);
+                    assertThat(e.getInstitutionCode()).isEqualTo("CF-12801");
                     assertThat(e.getInstitutionMessage()).isEqualTo("비밀번호가 일치하지 않습니다.");
                 });
         verify(linkedAccountRepository, never()).saveAll(any());
@@ -200,6 +206,70 @@ class LinkedAccountServiceTest {
                 .extracting(e -> ((GeneralException) e).getCode())
                 .isEqualTo(AccountErrorCode.ACCOUNT_NO_ELIGIBLE_ACCOUNT);
         verify(linkedAccountRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("카드사는 보유카드를 조회해 카드마다 한 행을 저장하고, 잔액·미배분 포함은 비워 둔다")
+    void linksCardsWithoutBalance() {
+        givenUserAndExisting(List.of(existingAccount(KOOKMIN, "cid-1")));
+        when(codefAccountClient.register(eq("cid-1"), eq(SHINHAN_CARD), eq(LinkedAccountType.CARD),
+                anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefCardClient.fetchCards("cid-1", SHINHAN_CARD, "980225")).thenReturn(
+                new CardsResult(List.of(
+                        new Card("6056********0123", "OO체크카드", "체크/본인"),
+                        new Card("6253********0456", "할인카드", "신용/본인")), null, null));
+        givenSavedEcho();
+
+        List<LinkedAccountResponse> responses = service.link(USER_ID, request(SHINHAN_CARD));
+
+        ArgumentCaptor<List<LinkedAccount>> captor = ArgumentCaptor.captor();
+        verify(linkedAccountRepository).saveAll(captor.capture());
+        List<LinkedAccount> saved = captor.getValue();
+        assertThat(saved).hasSize(2);
+        assertThat(saved).allSatisfy(card -> {
+            assertThat(card.getType()).isEqualTo(LinkedAccountType.CARD);
+            assertThat(card.getBalance()).isNull();
+            assertThat(card.getBalanceUpdatedAt()).isNull();
+            assertThat(card.isActive()).isFalse();
+            assertThat(card.getConnectedId()).isEqualTo("cid-1");
+        });
+        assertThat(saved.get(0).getAccountNumber()).isEqualTo("6056********0123");
+        assertThat(responses).extracting(LinkedAccountResponse::accountNumberLast4).containsExactly("0123", "0456");
+        assertThat(responses).extracting(LinkedAccountResponse::institutionName).containsOnly("신한카드");
+        verifyNoInteractions(codefBankAccountClient);
+    }
+
+    @Test
+    @DisplayName("연동할 카드가 하나도 없으면 오류로 안내한다")
+    void failsWhenNoCard() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(any(), anyString(), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefCardClient.fetchCards("cid-1", SHINHAN_CARD, "980225"))
+                .thenReturn(new CardsResult(List.of(), null, null));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(SHINHAN_CARD)))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.ACCOUNT_NO_ELIGIBLE_ACCOUNT);
+        verify(linkedAccountRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("보유카드 조회가 거절되면 기관 코드와 사유를 전달한다")
+    void deliversCardListFailure() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(any(), anyString(), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefCardClient.fetchCards("cid-1", SHINHAN_CARD, "980225"))
+                .thenReturn(new CardsResult(List.of(), "CF-12801", "조회에 실패했습니다."));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(SHINHAN_CARD)))
+                .isInstanceOfSatisfying(AccountLinkRejectedException.class, e -> {
+                    assertThat(e.getInstitutionCode()).isEqualTo("CF-12801");
+                    assertThat(e.getInstitutionMessage()).isEqualTo("조회에 실패했습니다.");
+                });
     }
 
     @Test
