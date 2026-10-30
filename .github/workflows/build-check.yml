@@ -1,0 +1,20 @@
+# PR마다 Docker 이미지가 빌드되는지만 확인한다. (AWS 접속·배포는 하지 않음)
+# 여기서 빨간 X가 뜨면 main에 머지했을 때 배포도 실패하니 먼저 고친다.
+
+name: Build Check
+
+on:
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker 이미지 빌드
+        run: docker build --platform linux/amd64 -t fintris-backend:check .
