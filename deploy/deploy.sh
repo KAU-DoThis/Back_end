@@ -36,11 +36,24 @@ aws ecr get-login-password --region "$AWS_REGION" \
 
 compose() { IMAGE_TAG="$1" docker compose "${@:2}"; }
 
+# 새 버전 로그를 남기고 이전 버전으로 되돌린 뒤 실패로 끝낸다
+rollback_and_fail() {
+  echo "[deploy] 실패: $1. 최근 로그:" >&2
+  compose "$NEW_TAG" logs --tail 80 main >&2 || true
+
+  if [[ -n "$PREV_TAG" ]]; then
+    echo "[deploy] 이전 버전($PREV_TAG)으로 되돌립니다." >&2
+    compose "$PREV_TAG" up -d --remove-orphans
+  fi
+  exit 1
+}
+
 echo "[deploy] 이미지 받기"
 compose "$NEW_TAG" pull main
 
+# set -e로 바로 끝나면 롤백을 못 하므로 교체 실패를 직접 처리한다
 echo "[deploy] 컨테이너 교체"
-compose "$NEW_TAG" up -d --remove-orphans
+compose "$NEW_TAG" up -d --remove-orphans || rollback_and_fail "컨테이너 교체 중 오류"
 
 echo "[deploy] 서버 응답 확인 중..."
 healthy=false
@@ -56,11 +69,4 @@ if $healthy; then
   exit 0
 fi
 
-echo "[deploy] 실패: 서버가 응답하지 않습니다. 최근 로그:" >&2
-docker compose logs --tail 80 main >&2 || true
-
-if [[ -n "$PREV_TAG" ]]; then
-  echo "[deploy] 이전 버전($PREV_TAG)으로 되돌립니다." >&2
-  compose "$PREV_TAG" up -d --remove-orphans
-fi
-exit 1
+rollback_and_fail "서버가 응답하지 않습니다"
