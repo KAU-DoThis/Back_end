@@ -13,7 +13,6 @@ main 머지 ─> GitHub Actions ─> 이미지 빌드 ─> ECR(fintris-backend) 
 | `deploy/docker-compose.yml` | 서버에서 main·mysql·caddy를 함께 띄우는 설정 |
 | `deploy/Caddyfile` | HTTPS 입구 (도메인이 생기면 사용) |
 | `deploy/deploy.sh` | 서버에서 실행되는 배포 스크립트 |
-| `deploy/.env.example` | 서버 `/opt/fintris/.env` 예시 (실제 값은 git에 올리지 않음) |
 | `.github/workflows/deploy.yml` | main 머지 시 배포 |
 | `.github/workflows/build-check.yml` | PR마다 이미지가 빌드되는지만 확인 |
 
@@ -116,9 +115,35 @@ echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
 
 # 설정 파일
 sudo mkdir -p /opt/fintris
-sudo curl -fsSL https://raw.githubusercontent.com/KAU-DoThis/Back_end/main/deploy/.env.example -o /opt/fintris/.env
-sudo chmod 600 /opt/fintris/.env
-sudo nano /opt/fintris/.env      # 비밀번호·JWT_SECRET·CODEF 값 채우기
+sudo touch /opt/fintris/.env && sudo chmod 600 /opt/fintris/.env
+sudo nano /opt/fintris/.env      # 아래 키를 붙여 넣고 빈 값 채우기
+```
+
+`/opt/fintris/.env`에 들어갈 키 (실제 값은 git에 올리지 않는다)
+
+```bash
+# ---------- 배포 ----------
+AWS_REGION=ap-northeast-2
+ECR_REGISTRY=311916835493.dkr.ecr.ap-northeast-2.amazonaws.com
+ECR_REPOSITORY=fintris-backend
+# 도메인이 생기면 넣는다. 비워두면 Caddy(HTTPS)를 띄우지 않는다.
+SITE_ADDRESS=
+
+# ---------- DB (MySQL 컨테이너 + main이 같이 사용) ----------
+MYSQL_ROOT_PASSWORD=
+MYSQL_DATABASE=fintris
+DB_USERNAME=fintris
+DB_PASSWORD=
+# 빈 DB에서 처음 띄울 때는 update여야 테이블이 만들어진다.
+JPA_DDL_AUTO=update
+
+# ---------- 앱 ----------
+# 32자 이상의 임의 문자열 (예: openssl rand -base64 48)
+JWT_SECRET=
+CODEF_BASE_URL=https://development.codef.io
+CODEF_CLIENT_ID=
+CODEF_CLIENT_SECRET=
+CODEF_PUBLIC_KEY=
 ```
 
 `JWT_SECRET`, DB 비밀번호는 `openssl rand -base64 48`로 만든다. 이 값들은 디스코드·카톡에 올리지 않는다.

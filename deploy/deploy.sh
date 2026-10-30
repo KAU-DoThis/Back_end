@@ -14,7 +14,7 @@ APP_DIR=/opt/fintris
 cd "$APP_DIR"
 
 if [[ ! -f .env ]]; then
-  echo "[deploy] $APP_DIR/.env 가 없습니다. deploy/.env.example 을 보고 먼저 만들어 주세요." >&2
+  echo "[deploy] $APP_DIR/.env 가 없습니다. deploy/README.md 의 키 목록을 보고 먼저 만들어 주세요." >&2
   exit 1
 fi
 
