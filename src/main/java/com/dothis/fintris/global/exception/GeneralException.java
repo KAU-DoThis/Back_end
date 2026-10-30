@@ -10,14 +10,36 @@ public class GeneralException extends RuntimeException {
 
   private final BaseErrorCode code;
 
+  // 실패 응답의 result에 실어 보낼 값 (예: 빠진 필수 동의 항목). 없으면 null
+  private final Object result;
+
   public GeneralException(BaseErrorCode code) {
     super(code.getMessage());
     this.code = code;
+    this.result = null;
   }
 
   public GeneralException(BaseErrorCode code, Throwable cause) {
     super(code.getMessage(), cause);
     this.code = code;
+    this.result = null;
+  }
+
+  private GeneralException(BaseErrorCode code, Object result) {
+    super(code.getMessage());
+    this.code = code;
+    this.result = result;
+  }
+
+  /**
+   * Creates an exception whose failure response carries the given result data.
+   *
+   * @param code   the error code associated with the exception
+   * @param result the data to put in the failure response's result field
+   * @return a new exception containing the error code and result data
+   */
+  public static GeneralException withResult(BaseErrorCode code, Object result) {
+    return new GeneralException(code, result);
   }
 
   /**
