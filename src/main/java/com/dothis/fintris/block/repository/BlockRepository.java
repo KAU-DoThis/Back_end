@@ -3,6 +3,8 @@ package com.dothis.fintris.block.repository;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,4 +23,10 @@ public interface BlockRepository extends JpaRepository<Block, Long> {
     Optional<Block> findTopByUser_IdAndDeletedAtIsNullOrderByDisplayOrderDesc(Long userId);
 
     boolean existsByUser_IdAndIsDefaultTrueAndDeletedAtIsNull(Long userId);
+
+    Optional<Block> findFirstByUser_IdAndIsDefaultTrueAndDeletedAtIsNull(Long userId);
+
+    // 미배분 잔액 = 실제 잔액 - 블록 잔액 합
+    @Query("select coalesce(sum(b.balance), 0) from Block b where b.user.id = :userId and b.deletedAt is null")
+    long sumBalanceByUserId(@Param("userId") Long userId);
 }
