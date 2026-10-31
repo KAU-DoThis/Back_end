@@ -1,0 +1,98 @@
+# FINTRIS 개발 서버(EC2 1대) 구성 — 아키텍처 "그림 1. 개발 단계" 기준
+#
+#   사용자 ──443──> caddy ──> main ──> mysql
+#                              └────> agent (AI 레포에서 추가 예정)
+#
+# 서버의 /opt/fintris 에 이 파일과 .env, Caddyfile, deploy.sh가 함께 있다.
+# 배포는 GitHub Actions가 deploy.sh를 실행해서 한다. 손으로 띄울 때는 deploy/README.md 참고.
+#
+# 네트워크를 셋으로 나눠서, 각 컨테이너가 필요한 곳에만 닿게 한다.
+#   edge : caddy ↔ main           (바깥에서 들어오는 길)
+#   data : main ↔ mysql           (DB는 main만 닿는다. 인터넷도 안 됨)
+#   ai   : main ↔ agent           (agent는 DB에 못 닿는다)
+
+name: fintris
+
+services:
+  main:
+    image: ${ECR_REGISTRY:?ECR_REGISTRY가 .env에 없습니다}/${ECR_REPOSITORY:-fintris-backend}:${IMAGE_TAG:?IMAGE_TAG가 필요합니다}
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    # main에 필요한 값만 골라서 넘긴다. (.env 전체를 넘기지 않는다)
+    environment:
+      TZ: Asia/Seoul
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-fintris}?serverTimezone=Asia/Seoul
+      DB_USERNAME: ${DB_USERNAME:?}
+      DB_PASSWORD: ${DB_PASSWORD:?}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      JWT_SECRET: ${JWT_SECRET:?}
+      CODEF_BASE_URL: ${CODEF_BASE_URL:-https://development.codef.io}
+      CODEF_CLIENT_ID: ${CODEF_CLIENT_ID:-}
+      CODEF_CLIENT_SECRET: ${CODEF_CLIENT_SECRET:-}
+      CODEF_PUBLIC_KEY: ${CODEF_PUBLIC_KEY:-}
+    # 서버 자신(127.0.0.1)에서만 열린다. 외부 공개는 caddy가 맡는다.
+    # 도메인이 없을 때는 SSM 포트 포워딩으로 내 PC에서 Swagger를 본다.
+    ports:
+      - "127.0.0.1:8080:8080"
+    mem_limit: 1g
+    networks: [edge, data, ai]
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-fintris}
+      MYSQL_USER: ${DB_USERNAME:?}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1g
+    # 포트를 밖으로 열지 않는다.
+    networks: [data]
+
+  # HTTPS 입구. 도메인이 생기면 .env에 SITE_ADDRESS를 넣는다.
+  # SITE_ADDRESS가 있을 때만 deploy.sh가 이 서비스를 켠다(profile: https).
+  caddy:
+    image: caddy:2.10
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [main]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-}
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge]
+
+  # AI Agent 서버(FastAPI)는 AI 레포에서 이미지가 준비되면 주석을 푼다.
+  # DB 관련 값은 절대 넘기지 않는다. (Agent가 뚫려도 DB에 못 닿게)
+  # agent:
+  #   image: ${ECR_REGISTRY}/fintris-agent:${AGENT_IMAGE_TAG}
+  #   restart: unless-stopped
+  #   environment:
+  #     GEMINI_API_KEY: ${GEMINI_API_KEY}
+  #   networks: [ai]
+
+networks:
+  edge:
+  data:
+    internal: true
+  ai:
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:
