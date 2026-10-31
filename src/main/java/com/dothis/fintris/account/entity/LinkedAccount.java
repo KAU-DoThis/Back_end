@@ -81,6 +81,11 @@ public class LinkedAccount extends BaseEntity {
 
     private LocalDateTime deletedAt;
 
+    public void unlink(LocalDateTime now) {
+        this.deletedAt = now;
+        this.isActive = false;
+    }
+
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);
     }

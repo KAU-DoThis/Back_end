@@ -81,6 +81,30 @@ public class LinkedAccountService {
         return saved.stream().map(LinkedAccountResponse::from).toList();
     }
 
+    // CODEF 등록을 먼저 지우고 성공하면 같은 기관의 계좌·카드를 모두 해제한다
+    public void unlink(Long userId, Long linkedAccountId) {
+        LinkedAccount target = linkedAccountRepository.findByIdAndDeletedAtIsNull(linkedAccountId)
+                .orElseThrow(() -> GeneralException.of(AccountErrorCode.ACCOUNT_NOT_FOUND));
+        if (!target.isOwnedBy(userId)) {
+            throw GeneralException.of(AccountErrorCode.ACCOUNT_FORBIDDEN);
+        }
+
+        List<LinkedAccount> sameInstitution = linkedAccountRepository
+                .findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).stream()
+                .filter(account -> account.getInstitutionCode().equals(target.getInstitutionCode()))
+                .toList();
+
+        CodefAccountResult result = codefAccountClient.unregister(
+                target.getConnectedId(), target.getInstitutionCode(), target.getType());
+        if (!result.isSuccess()) {
+            throw toLinkException(result.failureCode(), result.failureMessage());
+        }
+
+        LocalDateTime now = LocalDateTime.now(KST);
+        sameInstitution.forEach(account -> account.unlink(now));
+        linkedAccountRepository.saveAll(sameInstitution);
+    }
+
     // 은행은 수시입출 계좌를, 카드는 보유 카드를 가져와 같은 모양으로 맞춘다
     private FetchResult fetchTargets(SupportedInstitution institution, String connectedId, String birthDate) {
         if (institution.getType() == LinkedAccountType.CARD) {

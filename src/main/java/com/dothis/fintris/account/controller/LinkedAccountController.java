@@ -10,7 +10,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,6 +32,14 @@ public class LinkedAccountController {
     @GetMapping
     public ApiResponse<List<LinkedAccountResponse>> getLinkedAccounts(@AuthenticationPrincipal Long userId) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, linkedAccountService.getLinkedAccounts(userId));
+    }
+
+    @Operation(summary = "금융기관 연동 해제",
+            description = "선택한 계좌·카드가 속한 기관의 연동을 CODEF에서 지우고, 같은 기관의 항목을 모두 해제한다")
+    @DeleteMapping("/{linkedAccountId}")
+    public ApiResponse<Void> unlink(@AuthenticationPrincipal Long userId, @PathVariable Long linkedAccountId) {
+        linkedAccountService.unlink(userId, linkedAccountId);
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, null);
     }
 
     @Operation(summary = "금융기관 연동",

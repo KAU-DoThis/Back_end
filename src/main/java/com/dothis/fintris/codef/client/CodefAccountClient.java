@@ -17,6 +17,7 @@ public class CodefAccountClient {
 
     private static final String CREATE_PATH = "/v1/account/create";
     private static final String ADD_PATH = "/v1/account/add";
+    private static final String DELETE_PATH = "/v1/account/delete";
 
     private final CodefApiClient codefApiClient;
     private final RsaEncryptor rsaEncryptor;
@@ -42,6 +43,22 @@ public class CodefAccountClient {
 
         CodefResponse response = codefApiClient.post(connectedId == null ? CREATE_PATH : ADD_PATH, body);
         return toResult(response, connectedId);
+    }
+
+    // 기관 하나의 계정 등록을 CODEF에서 지운다. connectedId는 그대로 남는다
+    public CodefAccountResult unregister(String connectedId, String organization, LinkedAccountType type) {
+        Map<String, Object> account = new LinkedHashMap<>();
+        account.put("countryCode", "KR");
+        account.put("businessType", type == LinkedAccountType.BANK ? "BK" : "CD");
+        account.put("clientType", "P");
+        account.put("organization", organization);
+        account.put("loginType", "1");
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("accountList", List.of(account));
+        body.put("connectedId", connectedId);
+
+        return toResult(codefApiClient.post(DELETE_PATH, body), connectedId);
     }
 
     // 등록이 실패해도 HTTP 200으로 오므로 errorList의 코드·메시지를 결과로 돌려준다

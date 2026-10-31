@@ -26,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -270,6 +271,75 @@ class LinkedAccountServiceTest {
                     assertThat(e.getInstitutionCode()).isEqualTo("CF-12801");
                     assertThat(e.getInstitutionMessage()).isEqualTo("조회에 실패했습니다.");
                 });
+    }
+
+    private LinkedAccount ownedAccount(Long id, String institutionCode) {
+        User owner = User.builder().email("o@example.com").authProvider(AuthProvider.EMAIL).build();
+        ReflectionTestUtils.setField(owner, "id", USER_ID);
+        LinkedAccount account = LinkedAccount.builder().user(owner).institutionCode(institutionCode)
+                .type(LinkedAccountType.BANK).connectedId("cid-1").build();
+        ReflectionTestUtils.setField(account, "id", id);
+        return account;
+    }
+
+    @Test
+    @DisplayName("해제하면 CODEF 등록을 지우고 같은 기관의 항목만 모두 해제한다")
+    void unlinkRemovesWholeInstitution() {
+        LinkedAccount first = ownedAccount(10L, KOOKMIN);
+        LinkedAccount second = ownedAccount(11L, KOOKMIN);
+        LinkedAccount other = ownedAccount(12L, SHINHAN);
+        when(linkedAccountRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(first));
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
+                .thenReturn(List.of(first, second, other));
+        when(codefAccountClient.unregister("cid-1", KOOKMIN, LinkedAccountType.BANK))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+
+        service.unlink(USER_ID, 10L);
+
+        assertThat(first.getDeletedAt()).isNotNull();
+        assertThat(first.isActive()).isFalse();
+        assertThat(second.getDeletedAt()).isNotNull();
+        assertThat(other.getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("CODEF 삭제가 실패하면 DB는 그대로 두고 사유를 전달한다")
+    void unlinkKeepsRowsWhenCodefFails() {
+        LinkedAccount account = ownedAccount(10L, KOOKMIN);
+        when(linkedAccountRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(account));
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
+                .thenReturn(List.of(account));
+        when(codefAccountClient.unregister(anyString(), anyString(), any()))
+                .thenReturn(new CodefAccountResult(null, "CF-04000", "삭제에 실패했습니다."));
+
+        assertThatThrownBy(() -> service.unlink(USER_ID, 10L))
+                .isInstanceOf(AccountLinkRejectedException.class);
+        assertThat(account.getDeletedAt()).isNull();
+        verify(linkedAccountRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 계좌는 해제할 수 없다")
+    void unlinkRejectsOtherUsersAccount() {
+        when(linkedAccountRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(ownedAccount(10L, KOOKMIN)));
+
+        assertThatThrownBy(() -> service.unlink(999L, 10L))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.ACCOUNT_FORBIDDEN);
+        verifyNoInteractions(codefAccountClient);
+    }
+
+    @Test
+    @DisplayName("없거나 이미 해제된 계좌는 404로 안내한다")
+    void unlinkRejectsMissingAccount() {
+        when(linkedAccountRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.unlink(USER_ID, 10L))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.ACCOUNT_NOT_FOUND);
+        verifyNoInteractions(codefAccountClient);
     }
 
     @Test

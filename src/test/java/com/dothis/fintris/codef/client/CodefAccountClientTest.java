@@ -148,6 +148,20 @@ class CodefAccountClientTest {
     }
 
     @Test
+    @DisplayName("삭제는 delete 경로로 기관 정보와 connectedId만 보내고 비밀번호는 싣지 않는다")
+    void unregisterSendsInstitutionOnly() {
+        when(codefApiClient.post(anyString(), any())).thenReturn(response("CF-00000", "성공", "{\"connectedId\": \"cid-1\"}"));
+
+        CodefAccountResult result = client.unregister("cid-1", "0004", LinkedAccountType.BANK);
+
+        Map<String, Object> body = capturedBody("/v1/account/delete");
+        assertThat(body).containsEntry("connectedId", "cid-1");
+        assertThat(firstAccount(body)).containsEntry("organization", "0004").containsEntry("businessType", "BK")
+                .doesNotContainKeys("password", "id");
+        assertThat(result.isSuccess()).isTrue();
+    }
+
+    @Test
     @DisplayName("성공 코드여도 connectedId를 얻지 못하면 실패로 본다")
     void successWithoutAnyConnectedIdIsFailure() {
         givenResponse(response("CF-00000", "성공", "{}"));
