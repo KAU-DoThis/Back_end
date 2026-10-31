@@ -19,6 +19,7 @@ import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
 import com.dothis.fintris.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +28,7 @@ import java.time.ZoneId;
 import java.util.List;
 
 // CODEF 호출이 오래 걸릴 수 있어 DB 트랜잭션을 걸지 않고, 저장만 saveAll의 트랜잭션으로 묶는다
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LinkedAccountService {
@@ -66,11 +68,19 @@ public class LinkedAccountService {
             throw toLinkException(registered.failureCode(), registered.failureMessage());
         }
 
-        FetchResult fetched = fetchTargets(institution, registered.connectedId(), request.birthDate());
+        FetchResult fetched;
+        try {
+            fetched = fetchTargets(institution, registered.connectedId(), request.birthDate());
+        } catch (RuntimeException e) {
+            rollbackRegistration(registered.connectedId(), institution);
+            throw e;
+        }
         if (!fetched.isSuccess()) {
+            rollbackRegistration(registered.connectedId(), institution);
             throw toLinkException(fetched.failureCode(), fetched.failureMessage());
         }
         if (fetched.targets().isEmpty()) {
+            rollbackRegistration(registered.connectedId(), institution);
             throw GeneralException.of(AccountErrorCode.ACCOUNT_NO_ELIGIBLE_ACCOUNT);
         }
 
@@ -103,6 +113,18 @@ public class LinkedAccountService {
         LocalDateTime now = LocalDateTime.now(KST);
         sameInstitution.forEach(account -> account.unlink(now));
         linkedAccountRepository.saveAll(sameInstitution);
+    }
+
+    // 저장하지 못한 채 CODEF에만 남는 등록을 지운다. 실패해도 원래 오류를 유지하고 로그에는 기관 코드만 남긴다
+    private void rollbackRegistration(String connectedId, SupportedInstitution institution) {
+        try {
+            CodefAccountResult result = codefAccountClient.unregister(connectedId, institution.getCode(), institution.getType());
+            if (!result.isSuccess()) {
+                log.warn("CODEF 등록 보상 해제 실패: institution={}, code={}", institution.getCode(), result.failureCode());
+            }
+        } catch (RuntimeException e) {
+            log.warn("CODEF 등록 보상 해제 중 예외: institution={}", institution.getCode());
+        }
     }
 
     // 은행은 수시입출 계좌를, 카드는 보유 카드를 가져와 같은 모양으로 맞춘다
