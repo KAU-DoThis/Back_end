@@ -16,7 +16,7 @@ main 머지 ─> GitHub Actions ─> 이미지 빌드 ─> ECR(fintris-backend) 
 | `.github/workflows/deploy.yml` | main 머지 시 배포 |
 | `.github/workflows/build-check.yml` | PR마다 이미지가 빌드되는지만 확인 |
 
-- 계정 ID `311916835493`, 리전 서울 `ap-northeast-2`, 인스턴스 `fintris-dev`
+- 계정 ID `<ACCOUNT_ID>`(실제 값은 팀 노션 참고), 리전 서울 `ap-northeast-2`, 인스턴스 `fintris-dev`
 - 개발 서버는 **main 기준**으로 배포한다. dev에 머지한 기능은 dev → main PR이 머지돼야 서버에 올라간다.
 
 ---
@@ -43,7 +43,7 @@ IAM → 역할 → 역할 생성 → 웹 자격 증명 → 위 공급자 선택.
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
-    "Principal": { "Federated": "arn:aws:iam::311916835493:oidc-provider/token.actions.githubusercontent.com" },
+    "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com" },
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
       "StringEquals": {
@@ -69,12 +69,12 @@ IAM → 역할 → 역할 생성 → 웹 자격 증명 → 위 공급자 선택.
         "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchGetImage",
         "ecr:GetDownloadUrlForLayer", "ecr:DescribeImages"
       ],
-      "Resource": "arn:aws:ecr:ap-northeast-2:311916835493:repository/fintris-backend"
+      "Resource": "arn:aws:ecr:ap-northeast-2:<ACCOUNT_ID>:repository/fintris-backend"
     },
     {
       "Sid": "RunDeployOnInstance", "Effect": "Allow", "Action": "ssm:SendCommand",
       "Resource": [
-        "arn:aws:ec2:ap-northeast-2:311916835493:instance/<INSTANCE_ID>",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:instance/<INSTANCE_ID>",
         "arn:aws:ssm:ap-northeast-2::document/AWS-RunShellScript"
       ]
     },
@@ -124,7 +124,7 @@ sudo nano /opt/fintris/.env      # 아래 키를 붙여 넣고 빈 값 채우기
 ```bash
 # ---------- 배포 ----------
 AWS_REGION=ap-northeast-2
-ECR_REGISTRY=311916835493.dkr.ecr.ap-northeast-2.amazonaws.com
+ECR_REGISTRY=<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com
 ECR_REPOSITORY=fintris-backend
 # 도메인이 생기면 넣는다. 비워두면 Caddy(HTTPS)를 띄우지 않는다.
 SITE_ADDRESS=
@@ -156,7 +156,7 @@ CODEF_PUBLIC_KEY=
 
 | 이름 | 값 |
 | --- | --- |
-| `AWS_ROLE_ARN` | `arn:aws:iam::311916835493:role/fintris-github-deploy` |
+| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT_ID>:role/fintris-github-deploy` |
 | `EC2_INSTANCE_ID` | fintris-dev 인스턴스 ID (`i-`로 시작) |
 
 AWS 키(Access Key)는 저장하지 않는다. OIDC로 매번 임시 자격증명을 받는다.
