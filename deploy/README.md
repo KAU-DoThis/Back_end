@@ -96,22 +96,13 @@ fintris-dev에 붙은 IAM 역할에 관리형 정책 두 개가 있어야 한다
 
 ## 2. 서버 최초 설정 (1회)
 
+fintris-dev는 **Ubuntu 24.04**이고 Docker·Compose·스왑·AWS CLI가 이미 설치돼 있다. **`.env`만 만들면 된다.**
+
 Session Manager로 fintris-dev에 접속해서 실행한다.
 
 ```bash
-# Docker + Compose 설치 (Amazon Linux 2023)
-sudo dnf install -y docker
-sudo systemctl enable --now docker
-sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
-  -o /usr/local/lib/docker/cli-plugins/docker-compose
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-docker compose version
-
-# 메모리 여유용 스왑 2GB
-sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile
-sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
+# 설치 확인 (버전과 스왑이 나오면 OK)
+docker compose version && aws --version && swapon --show
 
 # 설정 파일
 sudo mkdir -p /opt/fintris
@@ -144,9 +135,12 @@ CODEF_BASE_URL=https://development.codef.io
 CODEF_CLIENT_ID=
 CODEF_CLIENT_SECRET=
 CODEF_PUBLIC_KEY=
+# connectedId 암호화 키. Base64로 된 32바이트 (비어 있으면 앱이 시작되지 않는다)
+CODEF_CONNECTED_ID_KEY=
 ```
 
-`JWT_SECRET`, DB 비밀번호는 `openssl rand -base64 48`로 만든다. 이 값들은 디스코드·카톡에 올리지 않는다.
+`JWT_SECRET`, DB 비밀번호는 `openssl rand -base64 48`, `CODEF_CONNECTED_ID_KEY`는 `openssl rand -base64 32`로 만든다. 이 값들은 디스코드·카톡에 올리지 않는다.
+`CODEF_CONNECTED_ID_KEY`는 한 번 정하면 바꾸지 않는다. 바꾸면 이미 저장된 connectedId를 풀 수 없다.
 
 ---
 
