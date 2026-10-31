@@ -30,3 +30,4 @@ codef:
   client-id: ${CODEF_CLIENT_ID}
   client-secret: ${CODEF_CLIENT_SECRET}
   public-key: ${CODEF_PUBLIC_KEY}
+  connected-id-key: ${CODEF_CONNECTED_ID_KEY}

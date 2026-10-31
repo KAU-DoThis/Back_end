@@ -14,4 +14,5 @@ public class CodefProperties {
     private String clientId;
     private String clientSecret;
     private String publicKey;
+    private String connectedIdKey; // connectedId 암호화 키 (Base64, 32바이트)
 }

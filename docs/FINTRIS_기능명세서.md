@@ -204,9 +204,10 @@ CODEF 계정 등록으로 connectedId를 발급받고, 이후 조회는 connecte
 
 **데이터**
 
-- `linked_account`: id, user_id, institution, type(계좌·카드), connected_id, last_synced_at
+- `linked_account`: id, user_id, institution, type(계좌·카드), connected_id(암호화), account_number(암호화), account_number_last4, last_synced_at
 - `transaction`: id, account_id, occurred_at, amount, direction(in·out), merchant_or_payee, balance_after, source(codef·notification·manual), status(provisional·confirmed)
 - 금융기관 인증정보는 **저장하지 않는다.**
+- `connected_id`와 `account_number`는 AES-256-GCM으로 암호화해 저장하고, API 응답에는 노출하지 않는다. 화면에는 `account_number_last4`만 보여준다. 전체 계좌번호는 CODEF 거래내역 조회(`account` 파라미터)에 필요해서 저장한다.
 
 **수용 기준**
 
@@ -1076,7 +1077,7 @@ CODEF 계정 등록으로 connectedId를 발급받고, 이후 조회는 connecte
 | 송금 수취인명 | ○ (반복 판정용, 마스킹 후) | - | DB (마스킹: 김OO) |
 | 결제 알림 원문 | 파싱 실패 시 금액·가맹점 후보만 | - | 저장 안 함 |
 | 화이트리스트 밖 앱 알림 | - | - | 읽는 즉시 폐기 |
-| 이름, 연락처, 계좌번호 | - | - | 이름·연락처만 DB, 계좌번호는 뒤 4자리만 |
+| 이름, 연락처, 계좌번호 | - | - | 이름·연락처는 DB, 계좌번호는 암호화해 저장(거래내역 조회용). 화면·응답에는 뒤 4자리만 |
 | 금융기관 인증정보 | - | - | 저장 안 함 (connectedId만) |
 | 맥락 확인 답변 | ○ | - | 태그만, 자유 입력 원문은 분류 후 폐기 |
 | 코치 대화 | ○ | 금액·카테고리·블록 이름만 | 원문 90일 후 삭제 |
@@ -1134,7 +1135,7 @@ CODEF 계정 등록으로 connectedId를 발급받고, 이후 조회는 connecte
 | --- | --- | --- |
 | `user` | id, email, auth_provider, plan, created_at, last_login_at | F-17 |
 | `consent` | user_id, item, agreed, doc_version, changed_at | F-18 |
-| `linked_account` | id, user_id, institution, type, connected_id, last_synced_at | F-19 |
+| `linked_account` | id, user_id, institution, type, connected_id, account_number, account_number_last4, last_synced_at | F-19 |
 | `transaction` | id, account_id, occurred_at, amount, direction, merchant_or_payee, source, status, category, confidence, context_tag, block_id, excluded | F-19~F-21, F-25, F-26 |
 | `receivable` | user_id, transaction_id, amount, settled | F-21 |
 | `block` | id, user_id, type, name, balance, target_amount, due_date, rule(JSON), status, version | F-04, F-11 |
