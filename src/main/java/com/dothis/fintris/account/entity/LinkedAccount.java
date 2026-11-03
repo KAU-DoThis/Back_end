@@ -86,7 +86,7 @@ public class LinkedAccount extends BaseEntity {
         this.isActive = false;
     }
 
-    // 잔액은 가장 최근 거래의 거래 후 잔액이고, 모르면 기존 값을 둔다
+    // 잔액을 모르면 기존 값을 둔다
     public void markSynced(LocalDateTime now, Long latestBalance) {
         this.lastSyncedAt = now;
         if (latestBalance != null) {

@@ -50,7 +50,9 @@ public class CodefBankTransactionClient {
                 addIfValid(transactions, item);
             }
         }
-        return BankTransactionsResult.success(transactions);
+        // 거래가 없는 기간에도 현재 잔액은 응답에 실려 온다
+        Long currentBalance = response.data() == null ? null : parseBalance(text(response.data(), "resAccountBalance"));
+        return BankTransactionsResult.success(transactions, currentBalance);
     }
 
     private void addIfValid(List<BankTransaction> transactions, JsonNode item) {
@@ -103,19 +105,34 @@ public class CodefBankTransactionClient {
         }
     }
 
+    // 비었거나 읽을 수 없으면 0이 아니라 null이다. 잔액 0원과 구분해야 한다
+    private Long parseBalance(String balance) {
+        if (balance == null) {
+            return null;
+        }
+        String digits = balance.replace(",", "");
+        int dot = digits.indexOf('.');
+        try {
+            return Long.parseLong(dot < 0 ? digits : digits.substring(0, dot));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     // desc1~4는 은행마다 채우는 방식이 달라 그대로 넘기고, 가맹점·수취인 선택은 사용하는 쪽에서 한다
     public record BankTransaction(LocalDateTime occurredAt, TransactionDirection direction, long amount,
                                   Long balanceAfter, String desc1, String desc2, String desc3, String desc4) {
     }
 
-    public record BankTransactionsResult(List<BankTransaction> transactions, String failureCode, String failureMessage) {
+    public record BankTransactionsResult(List<BankTransaction> transactions, Long currentBalance,
+                                         String failureCode, String failureMessage) {
 
-        static BankTransactionsResult success(List<BankTransaction> transactions) {
-            return new BankTransactionsResult(transactions, null, null);
+        static BankTransactionsResult success(List<BankTransaction> transactions, Long currentBalance) {
+            return new BankTransactionsResult(transactions, currentBalance, null, null);
         }
 
         static BankTransactionsResult failure(String code, String message) {
-            return new BankTransactionsResult(List.of(), code, message);
+            return new BankTransactionsResult(List.of(), null, code, message);
         }
 
         public boolean isSuccess() {
