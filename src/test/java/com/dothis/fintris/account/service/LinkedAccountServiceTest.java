@@ -333,6 +333,21 @@ class LinkedAccountServiceTest {
                 .isInstanceOf(AccountLinkRejectedException.class);
     }
 
+    @Test
+    @DisplayName("저장이 실패하면 CODEF 등록을 지우고 그 예외를 그대로 던진다")
+    void rollsBackRegistrationWhenSaveFails() {
+        givenRegisteredBank();
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        RuntimeException dbDown = new IllegalStateException("db down");
+        when(linkedAccountRepository.saveAll(any())).thenThrow(dbDown);
+        when(codefAccountClient.unregister("cid-1", KOOKMIN, LinkedAccountType.BANK))
+                .thenReturn(new CodefAccountResult(null, null, null));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN))).isSameAs(dbDown);
+        verify(codefAccountClient).unregister("cid-1", KOOKMIN, LinkedAccountType.BANK);
+    }
+
     private LinkedAccount ownedAccount(Long id, String institutionCode) {
         User owner = User.builder().email("o@example.com").authProvider(AuthProvider.EMAIL).build();
         ReflectionTestUtils.setField(owner, "id", USER_ID);

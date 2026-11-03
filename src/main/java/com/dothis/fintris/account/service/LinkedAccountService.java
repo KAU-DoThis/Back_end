@@ -85,9 +85,15 @@ public class LinkedAccountService {
         }
 
         LocalDateTime now = LocalDateTime.now(KST);
-        List<LinkedAccount> saved = linkedAccountRepository.saveAll(fetched.targets().stream()
-                .map(target -> toEntity(user, institution, registered.connectedId(), target, now))
-                .toList());
+        List<LinkedAccount> saved;
+        try {
+            saved = linkedAccountRepository.saveAll(fetched.targets().stream()
+                    .map(target -> toEntity(user, institution, registered.connectedId(), target, now))
+                    .toList());
+        } catch (RuntimeException e) {
+            rollbackRegistration(registered.connectedId(), institution);
+            throw e;
+        }
         return saved.stream().map(LinkedAccountResponse::from).toList();
     }
 
