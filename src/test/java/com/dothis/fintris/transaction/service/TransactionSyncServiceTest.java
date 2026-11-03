@@ -68,7 +68,7 @@ class TransactionSyncServiceTest {
 
     private void givenFetched(BankTransaction... transactions) {
         when(codefBankTransactionClient.fetchTransactions(any(), any(), any(), any(), any()))
-                .thenReturn(new BankTransactionsResult(List.of(transactions), null, null));
+                .thenReturn(new BankTransactionsResult(List.of(transactions), null, null, null));
     }
 
     private List<Transaction> savedTransactions() {
@@ -173,11 +173,38 @@ class TransactionSyncServiceTest {
     }
 
     @Test
+    @DisplayName("응답의 현재 잔액이 있으면 거래가 없어도 그 값으로 잔액을 갱신한다")
+    void updatesBalanceFromCurrentBalanceWithoutTransactions() {
+        LinkedAccount account = bankAccount(null);
+        ReflectionTestUtils.setField(account, "balance", 50_000L);
+        when(codefBankTransactionClient.fetchTransactions(any(), any(), any(), any(), any()))
+                .thenReturn(new BankTransactionsResult(List.of(), 0L, null, null));
+
+        service.syncAccount(account);
+
+        assertThat(account.getBalance()).isZero();
+        assertThat(account.getBalanceUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("현재 잔액과 마지막 거래 잔액이 다르면 현재 잔액을 쓴다")
+    void prefersCurrentBalanceOverLastTransactionBalance() {
+        LinkedAccount account = bankAccount(null);
+        when(codefBankTransactionClient.fetchTransactions(any(), any(), any(), any(), any()))
+                .thenReturn(new BankTransactionsResult(
+                        List.of(out(T1, 4_500, 120_000L, "스타벅스")), 99_000L, null, null));
+
+        service.syncAccount(account);
+
+        assertThat(account.getBalance()).isEqualTo(99_000L);
+    }
+
+    @Test
     @DisplayName("CODEF가 조회를 거절하면 사유를 전달하고 아무것도 저장하지 않는다")
     void deliversFailureWithoutSaving() {
         LinkedAccount account = bankAccount(null);
         when(codefBankTransactionClient.fetchTransactions(any(), any(), any(), any(), any()))
-                .thenReturn(new BankTransactionsResult(List.of(), "CF-12801", "조회에 실패했습니다."));
+                .thenReturn(new BankTransactionsResult(List.of(), null, "CF-12801", "조회에 실패했습니다."));
 
         assertThatThrownBy(() -> service.syncAccount(account))
                 .isInstanceOfSatisfying(AccountLinkRejectedException.class,
