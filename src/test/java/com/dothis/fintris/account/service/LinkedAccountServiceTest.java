@@ -273,6 +273,81 @@ class LinkedAccountServiceTest {
                 });
     }
 
+    private void givenRegisteredBank() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(any(), anyString(), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+    }
+
+    @Test
+    @DisplayName("보유계좌 조회가 실패하면 방금 만든 CODEF 등록을 지우고 원래 사유를 전달한다")
+    void rollsBackRegistrationWhenFetchFails() {
+        givenRegisteredBank();
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN))
+                .thenReturn(new BankAccountsResult(List.of(), "CF-02100", "조회 계좌로 등록된 계좌가 없습니다."));
+        when(codefAccountClient.unregister("cid-1", KOOKMIN, LinkedAccountType.BANK))
+                .thenReturn(new CodefAccountResult(null, null, null));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
+                .isInstanceOfSatisfying(AccountLinkRejectedException.class,
+                        e -> assertThat(e.getInstitutionCode()).isEqualTo("CF-02100"));
+        verify(codefAccountClient).unregister("cid-1", KOOKMIN, LinkedAccountType.BANK);
+    }
+
+    @Test
+    @DisplayName("연동할 계좌가 없으면 CODEF 등록을 지운다")
+    void rollsBackRegistrationWhenNoEligibleAccount() {
+        givenRegisteredBank();
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN))
+                .thenReturn(new BankAccountsResult(List.of(), null, null));
+        when(codefAccountClient.unregister("cid-1", KOOKMIN, LinkedAccountType.BANK))
+                .thenReturn(new CodefAccountResult(null, null, null));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN))).isInstanceOf(GeneralException.class);
+        verify(codefAccountClient).unregister("cid-1", KOOKMIN, LinkedAccountType.BANK);
+    }
+
+    @Test
+    @DisplayName("조회 중 예외가 나도 CODEF 등록을 지우고 그 예외를 그대로 던진다")
+    void rollsBackRegistrationWhenFetchThrows() {
+        givenRegisteredBank();
+        RuntimeException timeout = new IllegalStateException("timeout");
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenThrow(timeout);
+        when(codefAccountClient.unregister("cid-1", KOOKMIN, LinkedAccountType.BANK))
+                .thenReturn(new CodefAccountResult(null, null, null));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN))).isSameAs(timeout);
+        verify(codefAccountClient).unregister("cid-1", KOOKMIN, LinkedAccountType.BANK);
+    }
+
+    @Test
+    @DisplayName("등록을 지우는 데 실패해도 원래 오류를 유지한다")
+    void keepsOriginalErrorWhenRollbackFails() {
+        givenRegisteredBank();
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN))
+                .thenReturn(new BankAccountsResult(List.of(), "CF-02100", "조회 계좌로 등록된 계좌가 없습니다."));
+        when(codefAccountClient.unregister("cid-1", KOOKMIN, LinkedAccountType.BANK))
+                .thenThrow(new IllegalStateException("codef down"));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
+                .isInstanceOf(AccountLinkRejectedException.class);
+    }
+
+    @Test
+    @DisplayName("저장이 실패하면 CODEF 등록을 지우고 그 예외를 그대로 던진다")
+    void rollsBackRegistrationWhenSaveFails() {
+        givenRegisteredBank();
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        RuntimeException dbDown = new IllegalStateException("db down");
+        when(linkedAccountRepository.saveAll(any())).thenThrow(dbDown);
+        when(codefAccountClient.unregister("cid-1", KOOKMIN, LinkedAccountType.BANK))
+                .thenReturn(new CodefAccountResult(null, null, null));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN))).isSameAs(dbDown);
+        verify(codefAccountClient).unregister("cid-1", KOOKMIN, LinkedAccountType.BANK);
+    }
+
     private LinkedAccount ownedAccount(Long id, String institutionCode) {
         User owner = User.builder().email("o@example.com").authProvider(AuthProvider.EMAIL).build();
         ReflectionTestUtils.setField(owner, "id", USER_ID);
