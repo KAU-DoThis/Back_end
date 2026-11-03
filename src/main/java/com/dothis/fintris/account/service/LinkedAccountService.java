@@ -2,6 +2,7 @@ package com.dothis.fintris.account.service;
 
 import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
+import com.dothis.fintris.account.dto.LinkedAccountListResponse;
 import com.dothis.fintris.account.dto.LinkedAccountResponse;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.LinkedAccountType;
@@ -43,10 +44,9 @@ public class LinkedAccountService {
     private final CodefCardClient codefCardClient;
 
     @Transactional(readOnly = true)
-    public List<LinkedAccountResponse> getLinkedAccounts(Long userId) {
-        return linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).stream()
-                .map(LinkedAccountResponse::from)
-                .toList();
+    public LinkedAccountListResponse getLinkedAccounts(Long userId) {
+        return LinkedAccountListResponse.from(
+                linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId));
     }
 
     public List<LinkedAccountResponse> link(Long userId, LinkedAccountCreateRequest request) {

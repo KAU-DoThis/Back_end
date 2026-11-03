@@ -1,6 +1,7 @@
 package com.dothis.fintris.account.controller;
 
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
+import com.dothis.fintris.account.dto.LinkedAccountListResponse;
 import com.dothis.fintris.account.dto.LinkedAccountResponse;
 import com.dothis.fintris.account.service.LinkedAccountService;
 import com.dothis.fintris.global.api.ApiResponse;
@@ -22,7 +23,7 @@ import java.util.List;
 
 @Tag(name = "Account", description = "계좌·카드 연동 (F-19)")
 @RestController
-@RequestMapping("/accounts")
+@RequestMapping("/linked-accounts")
 @RequiredArgsConstructor
 public class LinkedAccountController {
 
@@ -30,7 +31,7 @@ public class LinkedAccountController {
 
     @Operation(summary = "연동된 계좌 목록 조회", description = "해제된 계좌는 제외한다")
     @GetMapping
-    public ApiResponse<List<LinkedAccountResponse>> getLinkedAccounts(@AuthenticationPrincipal Long userId) {
+    public ApiResponse<LinkedAccountListResponse> getLinkedAccounts(@AuthenticationPrincipal Long userId) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, linkedAccountService.getLinkedAccounts(userId));
     }
 
