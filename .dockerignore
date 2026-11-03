@@ -1,0 +1,14 @@
+# 이미지 빌드에 필요 없는 파일. 특히 .env(비밀값)는 절대 이미지에 들어가면 안 된다.
+.git
+.github
+.gradle
+.idea
+.vscode
+build
+out
+bin
+deploy
+docs
+*.md
+.env
+.env.*

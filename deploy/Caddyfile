@@ -1,0 +1,6 @@
+# SITE_ADDRESS(예: api.fintris.site)는 서버의 .env에서 읽는다.
+# Caddy가 Let's Encrypt 인증서를 자동으로 받아 HTTPS를 연다. (443 포트만 사용)
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy main:8080
+}
