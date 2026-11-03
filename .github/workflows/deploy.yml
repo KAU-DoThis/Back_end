@@ -76,8 +76,9 @@ jobs:
           TAG: ${{ github.sha }}
         run: |
           # 서버에서 실행할 명령: 이 커밋의 배포 파일을 받아서 deploy.sh 실행
+          # SSM은 /bin/sh(Ubuntu는 dash)로 실행하므로 pipefail 같은 bash 전용 옵션은 쓰지 않는다
           jq -n --arg raw "$RAW_BASE" --arg tag "$TAG" '{commands: [
-            "set -euo pipefail",
+            "set -eu",
             "mkdir -p /opt/fintris && cd /opt/fintris",
             "curl -fsSL \($raw)/docker-compose.yml -o docker-compose.yml",
             "curl -fsSL \($raw)/Caddyfile -o Caddyfile",
