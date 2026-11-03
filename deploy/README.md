@@ -37,6 +37,7 @@ IAM → 자격 증명 공급자 → 공급자 추가
 
 ### 1-3. GitHub Actions용 역할 `fintris-github-deploy`
 IAM → 역할 → 역할 생성 → 웹 자격 증명 → 위 공급자 선택. 만든 뒤 **신뢰 정책**을 아래로 바꾼다. (main 브랜치에서 실행된 워크플로만 이 역할을 쓸 수 있다)
+이 레포는 GitHub OIDC의 immutable subject를 써서 `sub`에 조직·레포 번호가 붙는다. 번호 없는 형식만 넣으면 `Not authorized to perform sts:AssumeRoleWithWebIdentity`로 로그인이 실패한다.
 
 ```json
 {
@@ -48,7 +49,10 @@ IAM → 역할 → 역할 생성 → 웹 자격 증명 → 위 공급자 선택.
     "Condition": {
       "StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:KAU-DoThis/Back_end:ref:refs/heads/main"
+        "token.actions.githubusercontent.com:sub": [
+          "repo:KAU-DoThis@330682798/Back_end@1375275374:ref:refs/heads/main",
+          "repo:KAU-DoThis/Back_end:ref:refs/heads/main"
+        ]
       }
     }
   }]
