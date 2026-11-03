@@ -74,7 +74,9 @@ public class TransactionSyncService {
                 .toList();
         transactionRepository.saveAll(fresh);
 
-        account.markSynced(now, latestBalance(fetched.transactions()));
+        // 응답의 현재 잔액이 없으면 마지막 거래의 거래 후 잔액을 쓴다
+        Long balance = fetched.currentBalance() != null ? fetched.currentBalance() : latestBalance(fetched.transactions());
+        account.markSynced(now, balance);
         linkedAccountRepository.save(account);
         return fresh.size();
     }

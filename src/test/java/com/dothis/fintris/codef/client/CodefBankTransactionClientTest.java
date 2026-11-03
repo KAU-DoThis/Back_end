@@ -131,6 +131,20 @@ class CodefBankTransactionClientTest {
     }
 
     @Test
+    @DisplayName("현재 잔액은 0원이어도 읽고, 비어 있으면 null이다")
+    void parsesCurrentBalanceAndKeepsZeroDistinctFromBlank() {
+        givenSuccess("{\"resAccountBalance\": \"0\"}");
+        assertThat(fetch().currentBalance()).isZero();
+    }
+
+    @Test
+    @DisplayName("현재 잔액이 비어 있으면 null이다")
+    void blankCurrentBalanceIsNull() {
+        givenSuccess("{\"resAccountBalance\": \"\"}");
+        assertThat(fetch().currentBalance()).isNull();
+    }
+
+    @Test
     @DisplayName("CODEF가 실패를 돌려주면 코드와 메시지를 그대로 전달한다")
     void deliversFailure() {
         when(codefApiClient.post(eq(PATH), any())).thenReturn(
