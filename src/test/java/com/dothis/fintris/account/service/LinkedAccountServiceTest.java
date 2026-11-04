@@ -2,6 +2,7 @@ package com.dothis.fintris.account.service;
 
 import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
+import com.dothis.fintris.account.dto.LinkedAccountListResponse;
 import com.dothis.fintris.account.dto.LinkedAccountResponse;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.LinkedAccountType;
@@ -15,10 +16,12 @@ import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccountsResult
 import com.dothis.fintris.codef.client.CodefCardClient;
 import com.dothis.fintris.codef.client.CodefCardClient.Card;
 import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
+import com.dothis.fintris.global.crypto.RsaEncryptor;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.User;
 import com.dothis.fintris.user.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +40,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -55,7 +59,13 @@ class LinkedAccountServiceTest {
     @Mock CodefAccountClient codefAccountClient;
     @Mock CodefBankAccountClient codefBankAccountClient;
     @Mock CodefCardClient codefCardClient;
+    @Mock RsaEncryptor rsaEncryptor;
     @InjectMocks LinkedAccountService service;
+
+    @BeforeEach
+    void stubEncryption() {
+        lenient().when(rsaEncryptor.encrypt(anyString())).thenReturn("ENC");
+    }
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
 
@@ -83,7 +93,7 @@ class LinkedAccountServiceTest {
     void firstLinkCreatesConnectedIdAndSavesEachAccount() {
         givenUserAndExisting(List.of());
         when(codefAccountClient.register(isNull(), eq(KOOKMIN), eq(LinkedAccountType.BANK),
-                eq("codef"), eq("pw1234"), eq("980225")))
+                eq("codef"), eq("ENC"), eq("980225")))
                 .thenReturn(new CodefAccountResult("cid-1", null, null));
         when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
                 new BankAccountsResult(List.of(
@@ -426,9 +436,45 @@ class LinkedAccountServiceTest {
         when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
                 .thenReturn(List.of(account));
 
-        List<LinkedAccountResponse> responses = service.getLinkedAccounts(USER_ID);
+        LinkedAccountListResponse response = service.getLinkedAccounts(USER_ID);
 
-        assertThat(responses).hasSize(1);
-        assertThat(responses.get(0).toString()).doesNotContain("secret-cid").doesNotContain("1002440001234");
+        assertThat(response.linkedAccounts()).hasSize(1);
+        assertThat(response.toString()).doesNotContain("secret-cid").doesNotContain("1002440001234");
+    }
+
+    @Test
+    @DisplayName("목록은 계산에 포함되는 계좌의 잔액 합과 가장 오래된 동기화 시각을 함께 준다")
+    void listHasTotalBalanceAndOldestSyncTime() {
+        LinkedAccount bank = LinkedAccount.builder().user(user).institutionCode(KOOKMIN)
+                .type(LinkedAccountType.BANK).connectedId("cid").balance(2_000_000L)
+                .lastSyncedAt(java.time.LocalDateTime.of(2026, 10, 14, 9, 0)).build();
+        LinkedAccount other = LinkedAccount.builder().user(user).institutionCode(SHINHAN)
+                .type(LinkedAccountType.BANK).connectedId("cid").balance(500_000L)
+                .lastSyncedAt(java.time.LocalDateTime.of(2026, 10, 13, 6, 0)).build();
+        LinkedAccount excluded = LinkedAccount.builder().user(user).institutionCode(SHINHAN)
+                .type(LinkedAccountType.BANK).connectedId("cid").balance(9_000_000L).isActive(false).build();
+        LinkedAccount card = LinkedAccount.builder().user(user).institutionCode(SHINHAN_CARD)
+                .type(LinkedAccountType.CARD).connectedId("cid").isActive(false).build();
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
+                .thenReturn(List.of(bank, other, excluded, card));
+
+        LinkedAccountListResponse response = service.getLinkedAccounts(USER_ID);
+
+        assertThat(response.totalBalance()).isEqualTo(2_500_000L);
+        assertThat(response.lastSyncedAt()).isEqualTo(java.time.LocalDateTime.of(2026, 10, 13, 6, 0));
+        assertThat(response.linkedAccounts()).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("연동한 계좌가 없으면 잔액 합은 0이고 동기화 시각은 null이다")
+    void emptyListHasZeroTotalAndNoSyncTime() {
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
+                .thenReturn(List.of());
+
+        LinkedAccountListResponse response = service.getLinkedAccounts(USER_ID);
+
+        assertThat(response.totalBalance()).isZero();
+        assertThat(response.lastSyncedAt()).isNull();
+        assertThat(response.linkedAccounts()).isEmpty();
     }
 }

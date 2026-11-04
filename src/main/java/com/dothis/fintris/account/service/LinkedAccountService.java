@@ -15,6 +15,7 @@ import com.dothis.fintris.codef.client.CodefBankAccountClient;
 import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccountsResult;
 import com.dothis.fintris.codef.client.CodefCardClient;
 import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
+import com.dothis.fintris.global.crypto.RsaEncryptor;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
@@ -42,6 +43,7 @@ public class LinkedAccountService {
     private final CodefAccountClient codefAccountClient;
     private final CodefBankAccountClient codefBankAccountClient;
     private final CodefCardClient codefCardClient;
+    private final RsaEncryptor rsaEncryptor;
 
     @Transactional(readOnly = true)
     public LinkedAccountListResponse getLinkedAccounts(Long userId) {
@@ -63,7 +65,7 @@ public class LinkedAccountService {
         String connectedId = existing.isEmpty() ? null : existing.get(0).getConnectedId();
 
         CodefAccountResult registered = codefAccountClient.register(connectedId, institution.getCode(),
-                institution.getType(), request.loginId(), request.password(), request.birthDate());
+                institution.getType(), request.loginId(), rsaEncryptor.encrypt(request.password()), request.birthDate());
         if (!registered.isSuccess()) {
             throw toLinkException(registered.failureCode(), registered.failureMessage());
         }
