@@ -16,7 +16,7 @@ import java.util.List;
 
 @Tag(name = "Transaction", description = "거래내역 동기화 (F-19)")
 @RestController
-@RequestMapping("/transactions")
+@RequestMapping("/linked-accounts")
 @RequiredArgsConstructor
 public class TransactionSyncController {
 
