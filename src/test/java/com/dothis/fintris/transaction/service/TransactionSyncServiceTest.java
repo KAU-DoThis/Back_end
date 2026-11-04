@@ -7,7 +7,6 @@ import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient.BankTransaction;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient.BankTransactionsResult;
-import com.dothis.fintris.transaction.dto.AccountSyncResponse;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionDirection;
 import com.dothis.fintris.transaction.entity.TransactionSource;
@@ -225,17 +224,24 @@ class TransactionSyncServiceTest {
     }
 
     @Test
-    @DisplayName("사용자 동기화는 은행 계좌마다 새로 저장한 거래 수를 돌려주고 카드는 뺀다")
-    void syncUserReturnsCountPerBankAccount() {
-        LinkedAccount bank = bankAccount(null);
+    @DisplayName("사용자 동기화는 한 계좌가 실패해도 나머지를 계속하고 실패 수를 센다")
+    void syncUserIsolatesFailures() {
+        LinkedAccount failing = bankAccount(null);
+        LinkedAccount working = LinkedAccount.builder().user(user).institutionCode("0088")
+                .type(LinkedAccountType.BANK).connectedId("cid-1").accountNumber("110123456789").build();
+        ReflectionTestUtils.setField(working, "id", 8L);
         LinkedAccount card = LinkedAccount.builder().user(user).institutionCode("0306")
                 .type(LinkedAccountType.CARD).connectedId("cid-1").build();
         when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(1L))
-                .thenReturn(List.of(bank, card));
-        givenFetched(out(T1, 4_500, 120_000L, "스타벅스"));
+                .thenReturn(List.of(failing, working, card));
+        when(codefBankTransactionClient.fetchTransactions(eq("cid-1"), eq(KOOKMIN), any(), any(), any()))
+                .thenReturn(new BankTransactionsResult(List.of(), null, "CF-12801", "조회에 실패했습니다."));
+        when(codefBankTransactionClient.fetchTransactions(eq("cid-1"), eq("0088"), any(), any(), any()))
+                .thenReturn(new BankTransactionsResult(List.of(), null, null, null));
 
-        List<AccountSyncResponse> results = service.syncUser(1L);
+        SyncSummary summary = service.syncUser(1L);
 
-        assertThat(results).containsExactly(new AccountSyncResponse(7L, 1));
+        assertThat(summary).isEqualTo(new SyncSummary(2, 1));
+        assertThat(working.getLastSyncedAt()).isNotNull();
     }
 }

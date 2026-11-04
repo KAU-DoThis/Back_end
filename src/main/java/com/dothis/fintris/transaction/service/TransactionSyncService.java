@@ -7,12 +7,12 @@ import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient.BankTransaction;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient.BankTransactionsResult;
-import com.dothis.fintris.transaction.dto.AccountSyncResponse;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionSource;
 import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 // CODEF 호출이 오래 걸릴 수 있어 DB 트랜잭션을 걸지 않는다. 저장이 중간에 끊겨도 다음 동기화가 겹치는 구간을 중복 키로 걸러낸다
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TransactionSyncService {
@@ -40,12 +41,21 @@ public class TransactionSyncService {
     private final LinkedAccountRepository linkedAccountRepository;
     private final CodefBankTransactionClient codefBankTransactionClient;
 
-    // 사용자의 연동 은행 계좌를 차례로 동기화한다. 한 계좌가 실패하면 그 오류를 그대로 던진다
-    public List<AccountSyncResponse> syncUser(Long userId) {
-        return linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).stream()
+    // 사용자의 연동 은행 계좌를 차례로 동기화한다. 한 계좌가 실패해도 나머지는 계속하고 실패 수를 센다
+    public SyncSummary syncUser(Long userId) {
+        List<LinkedAccount> banks = linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).stream()
                 .filter(account -> account.getType() == LinkedAccountType.BANK)
-                .map(account -> new AccountSyncResponse(account.getId(), syncAccount(account)))
                 .toList();
+        int failed = 0;
+        for (LinkedAccount account : banks) {
+            try {
+                syncAccount(account);
+            } catch (RuntimeException e) {
+                failed++;
+                log.warn("거래내역 동기화 실패: institution={}", account.getInstitutionCode());
+            }
+        }
+        return new SyncSummary(banks.size(), failed);
     }
 
     // 처음이면 최근 3개월, 이후에는 마지막 동기화 하루 전부터 가져온다. 새로 저장한 거래 수를 돌려준다
