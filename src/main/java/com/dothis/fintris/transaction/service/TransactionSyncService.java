@@ -1,6 +1,7 @@
 package com.dothis.fintris.transaction.service;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.entity.LinkedAccountStatus;
 import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.exception.AccountLinkRejectedException;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
@@ -35,6 +36,8 @@ public class TransactionSyncService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int INITIAL_MONTHS = 3;
     private static final int MERCHANT_MAX_LENGTH = 255;
+    // 다시 인증해야 하는 실패. 지금까지 확인한 코드만 담았고, 그 밖의 실패는 일시 오류(ERROR)로 본다
+    private static final Set<String> REAUTH_FAILURE_CODES = Set.of("CF-12800", "CF-12801", "CF-12824", "CF-03002");
     private static final DateTimeFormatter KEY_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     private final TransactionRepository transactionRepository;
@@ -72,6 +75,7 @@ public class TransactionSyncService {
         BankTransactionsResult fetched = codefBankTransactionClient.fetchTransactions(account.getConnectedId(),
                 account.getInstitutionCode(), account.getAccountNumber(), start, end);
         if (!fetched.isSuccess()) {
+            markFailed(account, fetched.failureCode());
             throw new AccountLinkRejectedException(fetched.failureCode(), fetched.failureMessage());
         }
 
@@ -89,6 +93,16 @@ public class TransactionSyncService {
         account.markSynced(now, balance);
         linkedAccountRepository.save(account);
         return fresh.size();
+    }
+
+    // 인증 문제면 재연동 안내(EXPIRED), 그 밖이면 ERROR로 표시한다. 다음 동기화가 성공하면 ACTIVE로 돌아간다
+    private void markFailed(LinkedAccount account, String failureCode) {
+        LinkedAccountStatus status = REAUTH_FAILURE_CODES.contains(failureCode)
+                ? LinkedAccountStatus.EXPIRED : LinkedAccountStatus.ERROR;
+        if (account.getStatus() != status) {
+            account.markSyncFailed(status);
+            linkedAccountRepository.save(account);
+        }
     }
 
     // 같은 초에 일시·금액·잔액이 모두 같은 거래는 응답 순서대로 번호를 붙여 구분한다

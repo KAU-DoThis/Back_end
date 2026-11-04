@@ -86,13 +86,18 @@ public class LinkedAccount extends BaseEntity {
         this.isActive = false;
     }
 
-    // 잔액을 모르면 기존 값을 둔다
+    // 잔액을 모르면 기존 값을 둔다. 동기화에 성공했으면 이전의 만료·오류 상태는 풀린다
     public void markSynced(LocalDateTime now, Long latestBalance) {
         this.lastSyncedAt = now;
+        this.status = LinkedAccountStatus.ACTIVE;
         if (latestBalance != null) {
             this.balance = latestBalance;
             this.balanceUpdatedAt = now;
         }
+    }
+
+    public void markSyncFailed(LinkedAccountStatus failedStatus) {
+        this.status = failedStatus;
     }
 
     public boolean isOwnedBy(Long userId) {

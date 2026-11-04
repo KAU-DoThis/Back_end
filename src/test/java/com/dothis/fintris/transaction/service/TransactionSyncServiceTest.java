@@ -1,6 +1,7 @@
 package com.dothis.fintris.transaction.service;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.entity.LinkedAccountStatus;
 import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.exception.AccountLinkRejectedException;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
@@ -209,8 +210,59 @@ class TransactionSyncServiceTest {
                 .isInstanceOfSatisfying(AccountLinkRejectedException.class,
                         e -> assertThat(e.getInstitutionCode()).isEqualTo("CF-12801"));
         verify(transactionRepository, never()).saveAll(any());
-        verify(linkedAccountRepository, never()).save(any());
         assertThat(account.getLastSyncedAt()).isNull();
+    }
+
+    private void givenFailure(String code) {
+        when(codefBankTransactionClient.fetchTransactions(any(), any(), any(), any(), any()))
+                .thenReturn(new BankTransactionsResult(List.of(), null, code, "실패"));
+    }
+
+    @Test
+    @DisplayName("인증 문제로 실패하면 계좌를 EXPIRED로 표시한다")
+    void marksExpiredOnAuthFailure() {
+        LinkedAccount account = bankAccount(null);
+        givenFailure("CF-12801");
+
+        assertThatThrownBy(() -> service.syncAccount(account)).isInstanceOf(AccountLinkRejectedException.class);
+
+        assertThat(account.getStatus()).isEqualTo(LinkedAccountStatus.EXPIRED);
+        verify(linkedAccountRepository).save(account);
+    }
+
+    @Test
+    @DisplayName("그 밖의 실패는 ERROR로 표시한다")
+    void marksErrorOnOtherFailure() {
+        LinkedAccount account = bankAccount(null);
+        givenFailure("CF-09999");
+
+        assertThatThrownBy(() -> service.syncAccount(account)).isInstanceOf(AccountLinkRejectedException.class);
+
+        assertThat(account.getStatus()).isEqualTo(LinkedAccountStatus.ERROR);
+    }
+
+    @Test
+    @DisplayName("이미 같은 상태면 다시 저장하지 않는다")
+    void doesNotSaveWhenStatusUnchanged() {
+        LinkedAccount account = bankAccount(null);
+        account.markSyncFailed(LinkedAccountStatus.EXPIRED);
+        givenFailure("CF-12801");
+
+        assertThatThrownBy(() -> service.syncAccount(account)).isInstanceOf(AccountLinkRejectedException.class);
+
+        verify(linkedAccountRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("동기화에 성공하면 이전의 만료 상태가 ACTIVE로 돌아간다")
+    void successRestoresActive() {
+        LinkedAccount account = bankAccount(null);
+        account.markSyncFailed(LinkedAccountStatus.EXPIRED);
+        givenFetched();
+
+        service.syncAccount(account);
+
+        assertThat(account.getStatus()).isEqualTo(LinkedAccountStatus.ACTIVE);
     }
 
     @Test
