@@ -347,8 +347,25 @@ v3와 같다. 온보딩 1/3 단계(00-4)에서 은행·카드를 여러 곳 고�
 `result: { "totalBalance": 4577000, "lastSyncedAt": "2026-10-14T09:00:00+09:00", "linkedAccounts": [ { "linkedAccountId": 3, "institutionName": "KB국민", "type": "BANK", "accountName": "입출금", "accountNumberLast4": "1234", "balance": 2687000, "isActive": true, "status": "ACTIVE", "lastSyncedAt": "..." } ] }`
 `status`: `ACTIVE` · `EXPIRED`(재연동 안내) · `ERROR`
 
-### 연동 해제 `DELETE /linked-accounts/{id}` · 수동 동기화 `POST /linked-accounts/sync` (`202`, `SKIPPED` 가능) · 동기화 상태 `GET /linked-accounts/sync-status`
+### 연동 해제 `DELETE /linked-accounts/{id}`
 v3와 같다. **[TBD]** connectedId 단위 테이블 분리 여부.
+
+### 수동 동기화 `POST /linked-accounts/sync`
+**Request body** 없음
+**Response body** `202`
+```json
+{ "isSuccess": true, "code": "S202", "message": "요청을 접수했습니다.", "result": { "syncStatus": "IN_PROGRESS", "lastSyncedAt": "2026-10-14T09:00:00" } }
+```
+- `syncStatus`: `IN_PROGRESS`(백그라운드로 시작했거나 이미 진행 중) · `SKIPPED`(모든 은행 계좌가 1시간 안에 동기화됐거나 동기화할 계좌가 없음)
+- 동기화는 요청과 따로 돌아간다. 결과는 아래 상태 조회로 확인한다.
+- 이미 진행 중일 때 다시 호출하면 새로 시작하지 않고 `IN_PROGRESS`를 돌려준다.
+- `lastSyncedAt`: 계좌 중 가장 오래된 마지막 동기화 시각. 한 번도 없으면 `null`
+
+### 동기화 상태 조회 `GET /linked-accounts/sync-status`
+`result: { "syncStatus": "DONE", "lastSyncedAt": "2026-10-14T09:00:00", "failedCount": 0 }`
+- `syncStatus`: `IDLE`(진행 중이 아님, 서버를 다시 켠 뒤에도 이 값) · `IN_PROGRESS` · `DONE` · `FAILED`(마지막 동기화에서 모든 계좌가 실패)
+- `failedCount`: 마지막 동기화에서 실패한 계좌 수. 일부만 실패하면 `DONE`이고 이 값으로 알 수 있다.
+- 진행 상태는 서버 메모리에만 있다(서버 한 대 기준). 마지막 결과 시각은 DB에 남는다.
 
 ---
 
