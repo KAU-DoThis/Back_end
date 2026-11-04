@@ -21,7 +21,10 @@ import com.dothis.fintris.codef.client.CodefCardClient.Card;
 import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.entity.AuthProvider;
+import com.dothis.fintris.user.entity.Consent;
+import com.dothis.fintris.user.entity.ConsentItem;
 import com.dothis.fintris.user.entity.User;
+import com.dothis.fintris.user.repository.ConsentRepository;
 import com.dothis.fintris.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,6 +59,7 @@ class LinkedAccountServiceTest {
 
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock UserRepository userRepository;
+    @Mock ConsentRepository consentRepository;
     @Mock CodefAccountClient codefAccountClient;
     @Mock CodefBankAccountClient codefBankAccountClient;
     @Mock CodefCardClient codefCardClient;
@@ -77,8 +81,14 @@ class LinkedAccountServiceTest {
 
     private void givenUserAndExisting(List<LinkedAccount> existing) {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        givenCodefConsent(true);
         when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
                 .thenReturn(existing);
+    }
+
+    private void givenCodefConsent(boolean agreed) {
+        when(consentRepository.findFirstByUser_IdAndItemOrderByIdDesc(USER_ID, ConsentItem.CODEF)).thenReturn(
+                Optional.of(Consent.builder().user(user).item(ConsentItem.CODEF).agreed(agreed).docVersion("2026-10-01").build()));
     }
 
     private LinkedAccount existingAccount(String institutionCode, String connectedId) {
@@ -445,6 +455,33 @@ class LinkedAccountServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting(e -> ((GeneralException) e).getCode())
                 .isEqualTo(AccountErrorCode.ACCOUNT_INSTITUTION_NOT_SUPPORTED);
+        verifyNoInteractions(codefAccountClient);
+    }
+
+    @Test
+    @DisplayName("CODEF 동의를 철회한 상태면 CODEF를 호출하지 않고 거절한다")
+    void rejectsWhenCodefConsentWithdrawn() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        givenCodefConsent(false);
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.LINK_CONSENT_REQUIRED);
+        verifyNoInteractions(codefAccountClient);
+    }
+
+    @Test
+    @DisplayName("CODEF 동의 기록이 없으면 거절한다")
+    void rejectsWhenNoCodefConsent() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(consentRepository.findFirstByUser_IdAndItemOrderByIdDesc(USER_ID, ConsentItem.CODEF))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.LINK_CONSENT_REQUIRED);
         verifyNoInteractions(codefAccountClient);
     }
 

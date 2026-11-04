@@ -19,7 +19,10 @@ import com.dothis.fintris.codef.client.CodefCardClient;
 import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.code.UserErrorCode;
+import com.dothis.fintris.user.entity.Consent;
+import com.dothis.fintris.user.entity.ConsentItem;
 import com.dothis.fintris.user.entity.User;
+import com.dothis.fintris.user.repository.ConsentRepository;
 import com.dothis.fintris.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +48,7 @@ public class LinkedAccountService {
 
     private final LinkedAccountRepository linkedAccountRepository;
     private final UserRepository userRepository;
+    private final ConsentRepository consentRepository;
     private final CodefAccountClient codefAccountClient;
     private final CodefBankAccountClient codefBankAccountClient;
     private final CodefCardClient codefCardClient;
@@ -58,6 +62,13 @@ public class LinkedAccountService {
     public LinkedAccountLinkResponse link(Long userId, LinkedAccountCreateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> GeneralException.of(UserErrorCode.USER_NOT_FOUND));
+        // 동의는 바뀔 때마다 행이 쌓이므로 가장 최근 행으로 판단한다
+        boolean codefAgreed = consentRepository.findFirstByUser_IdAndItemOrderByIdDesc(userId, ConsentItem.CODEF)
+                .map(Consent::isAgreed)
+                .orElse(false);
+        if (!codefAgreed) {
+            throw GeneralException.of(AccountErrorCode.LINK_CONSENT_REQUIRED);
+        }
 
         List<LinkedAccount> existing = linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId);
         Set<String> linkedCodes = existing.stream().map(LinkedAccount::getInstitutionCode)
