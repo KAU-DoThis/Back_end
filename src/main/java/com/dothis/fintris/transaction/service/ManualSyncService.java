@@ -60,6 +60,13 @@ public class ManualSyncService {
         return new SyncStartResponse(SyncStatus.IN_PROGRESS, lastSyncedAt);
     }
 
+    // 정기 동기화용. 호출한 스레드에서 끝까지 돌리고, 이미 진행 중(수동 동기화 포함)이면 건너뛴다
+    public void runScheduled(Long userId) {
+        if (registry.tryStart(userId)) {
+            run(userId);
+        }
+    }
+
     public SyncStatusResponse getStatus(Long userId) {
         SyncState state = registry.get(userId);
         return new SyncStatusResponse(state.status(),

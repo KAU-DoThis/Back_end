@@ -162,4 +162,25 @@ class ManualSyncServiceTest {
         assertThat(status.lastSyncedAt()).isEqualTo(synced);
         assertThat(status.failedCount()).isZero();
     }
+
+    @Test
+    @DisplayName("정기 동기화는 호출한 스레드에서 끝까지 돌리고 결과 상태를 남긴다")
+    void scheduledRunsSynchronously() {
+        when(transactionSyncService.syncUser(USER_ID)).thenReturn(new SyncSummary(1, 0));
+
+        service.runScheduled(USER_ID);
+
+        verify(transactionSyncService).syncUser(USER_ID);
+        assertThat(registry.get(USER_ID).status()).isEqualTo(SyncStatus.DONE);
+    }
+
+    @Test
+    @DisplayName("이미 진행 중이면 정기 동기화는 건너뛴다")
+    void scheduledSkipsWhileRunning() {
+        registry.tryStart(USER_ID);
+
+        service.runScheduled(USER_ID);
+
+        verify(transactionSyncService, never()).syncUser(USER_ID);
+    }
 }
