@@ -321,26 +321,34 @@ v3와 같다. 온보딩 1/3 단계(00-4)에서 은행·카드를 여러 곳 고�
 | 동기화 상태 조회 | 홈 | GET | `/linked-accounts/sync-status` |
 
 ### 연동 가능 기관 목록 `GET /institutions?type=BANK`
-`result: { "institutions": [ { "institutionCode": "0004", "name": "KB국민", "type": "BANK", "loginTypes": ["ID_PASSWORD", "CERTIFICATE"] } ] }`
+`result: { "institutions": [ { "institutionCode": "0004", "name": "국민은행", "type": "BANK", "loginTypes": ["ID_PASSWORD"] } ] }`
+비고: 공동인증서 로그인(`CERTIFICATE`)은 CODEF 유료 서비스라 지원하지 않는다. 우리은행처럼 SMS 추가 인증이 필요한 기관은 목록에서 뺀다. `type`을 생략하면 은행과 카드를 모두 준다.
 
 ### 계좌·카드 연동 `POST /linked-accounts`
 **Request body** (인증정보는 FE가 CODEF 공개키로 암호화)
 ```json
-{ "institutions": [ { "institutionCode": "0004", "type": "BANK", "loginType": "ID_PASSWORD", "loginId": "user01", "encryptedPassword": "RSA암호문..." } ] }
+{ "institutions": [ { "institutionCode": "0004", "type": "BANK", "loginType": "ID_PASSWORD", "loginId": "user01", "encryptedPassword": "RSA암호문...", "birthDate": "980225" } ] }
 ```
+- `birthDate`: 필수, 생년월일 6자리(`YYMMDD`). CODEF 보유카드 조회에 필수이고 은행 아이디 로그인에도 쓴다.
+- `encryptedPassword`: CODEF 공개키로 RSA(PKCS#1 v1.5) 암호화한 Base64 문자열. 서버는 평문을 받지 않고, 저장하지 않으며 CODEF로만 전달한다.
+- `type`이 기관코드의 종류와 다르면 그 기관은 실패로 처리한다.
+- **[TBD]** FE가 CODEF 공개키를 받는 방식 (앱에 포함 / 조회 API)
 **Response body** `201`
 ```json
 {
   "isSuccess": true, "code": "S201", "message": "연동에 성공했습니다. 거래를 가져오는 중입니다.",
   "result": {
     "linkedAccounts": [ { "linkedAccountId": 3, "institutionName": "KB국민", "type": "BANK", "accountName": "입출금", "accountNumberLast4": "1234", "balance": 2687000 } ],
-    "failed": [],
+    "failed": [ { "institutionCode": "0088", "code": "LINK_INSTITUTION_AUTH_FAILED", "message": "비밀번호가 일치하지 않습니다." } ],
     "initialSync": "IN_PROGRESS",
     "onboardingStep": "TUTORIAL"
   }
 }
 ```
-에러: `LINK_CONSENT_REQUIRED`, `LINK_INSTITUTION_AUTH_FAILED`(기관 메시지 포함, 일부만 실패하면 `failed`에 담고 201), `LINK_TIMEOUT`(30초 초과 → 백그라운드 재시도)
+에러: `LINK_CONSENT_REQUIRED`(`403`, `CODEF` 동의가 없거나 철회함), `LINK_INSTITUTION_AUTH_FAILED`(기관 메시지 포함, 일부만 실패하면 `failed`에 담고 201), `LINK_TIMEOUT`(30초 초과 → 백그라운드 재시도)
+- `failed[].message`: 기관이 거절 사유를 주면 그 문구, 아니면 에러 코드의 기본 문구
+- 기관별 실패 코드: `LINK_INSTITUTION_AUTH_FAILED`, `ACCOUNT_ALREADY_LINKED`(이미 연동했거나 같은 요청에 중복), `ACCOUNT_INSTITUTION_NOT_SUPPORTED`, `ACCOUNT_NO_ELIGIBLE_ACCOUNT`(입출금 계좌·카드 없음), `ACCOUNT_ADDITIONAL_AUTH_UNSUPPORTED`(추가 인증 필요)
+- 한 곳도 연동하지 못하면 `201` 대신 첫 실패 사유로 에러 응답
 비고: 최근 3개월 거래 수집 → 분류 → **입금원 분석(정기/추가 입금)** → 초기 블록 구성안 준비. connectedId는 응답에 넣지 않는다.
 
 ### 연동 목록 `GET /linked-accounts`
