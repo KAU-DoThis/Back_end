@@ -2,10 +2,13 @@ package com.dothis.fintris.account.service;
 
 import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
+import com.dothis.fintris.account.dto.LinkedAccountLinkResponse;
 import com.dothis.fintris.account.dto.LinkedAccountListResponse;
 import com.dothis.fintris.account.dto.LinkedAccountResponse;
+import com.dothis.fintris.account.entity.LinkLoginType;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.LinkedAccountType;
+import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.account.exception.AccountLinkRejectedException;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.codef.client.CodefAccountClient;
@@ -16,12 +19,10 @@ import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccountsResult
 import com.dothis.fintris.codef.client.CodefCardClient;
 import com.dothis.fintris.codef.client.CodefCardClient.Card;
 import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
-import com.dothis.fintris.global.crypto.RsaEncryptor;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.User;
 import com.dothis.fintris.user.repository.UserRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,7 +41,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -59,18 +59,20 @@ class LinkedAccountServiceTest {
     @Mock CodefAccountClient codefAccountClient;
     @Mock CodefBankAccountClient codefBankAccountClient;
     @Mock CodefCardClient codefCardClient;
-    @Mock RsaEncryptor rsaEncryptor;
     @InjectMocks LinkedAccountService service;
-
-    @BeforeEach
-    void stubEncryption() {
-        lenient().when(rsaEncryptor.encrypt(anyString())).thenReturn("ENC");
-    }
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
 
-    private LinkedAccountCreateRequest request(String institutionCode) {
-        return new LinkedAccountCreateRequest(institutionCode, "codef", "pw1234", "980225");
+    private LinkedAccountCreateRequest.Item item(String institutionCode) {
+        LinkedAccountType type = SupportedInstitution.findByCode(institutionCode)
+                .map(SupportedInstitution::getType).orElse(LinkedAccountType.BANK);
+        return new LinkedAccountCreateRequest.Item(institutionCode, type, LinkLoginType.ID_PASSWORD,
+                "codef", "ENC", "980225");
+    }
+
+    private LinkedAccountCreateRequest request(String... institutionCodes) {
+        return new LinkedAccountCreateRequest(
+                java.util.Arrays.stream(institutionCodes).map(this::item).toList());
     }
 
     private void givenUserAndExisting(List<LinkedAccount> existing) {
@@ -101,7 +103,7 @@ class LinkedAccountServiceTest {
                         new BankAccount("1002440005678", "생활비통장", null)), null, null));
         givenSavedEcho();
 
-        List<LinkedAccountResponse> responses = service.link(USER_ID, request(KOOKMIN));
+        List<LinkedAccountResponse> responses = service.link(USER_ID, request(KOOKMIN)).linkedAccounts();
 
         ArgumentCaptor<List<LinkedAccount>> captor = ArgumentCaptor.captor();
         verify(linkedAccountRepository).saveAll(captor.capture());
@@ -140,6 +142,8 @@ class LinkedAccountServiceTest {
     @Test
     @DisplayName("지원하지 않는 기관코드는 CODEF를 호출하지 않고 거절한다")
     void rejectsUnsupportedInstitution() {
+        givenUserAndExisting(List.of());
+
         assertThatThrownBy(() -> service.link(USER_ID, request("9999")))
                 .isInstanceOf(GeneralException.class)
                 .extracting(e -> ((GeneralException) e).getCode())
@@ -168,7 +172,7 @@ class LinkedAccountServiceTest {
 
         assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
                 .isInstanceOfSatisfying(AccountLinkRejectedException.class, e -> {
-                    assertThat(e.getCode()).isEqualTo(AccountErrorCode.ACCOUNT_LINK_REJECTED);
+                    assertThat(e.getCode()).isEqualTo(AccountErrorCode.LINK_INSTITUTION_AUTH_FAILED);
                     assertThat(e.getInstitutionCode()).isEqualTo("CF-12801");
                     assertThat(e.getInstitutionMessage()).isEqualTo("비밀번호가 일치하지 않습니다.");
                 });
@@ -232,7 +236,7 @@ class LinkedAccountServiceTest {
                         new Card("6253********0456", "할인카드", "신용/본인")), null, null));
         givenSavedEcho();
 
-        List<LinkedAccountResponse> responses = service.link(USER_ID, request(SHINHAN_CARD));
+        List<LinkedAccountResponse> responses = service.link(USER_ID, request(SHINHAN_CARD)).linkedAccounts();
 
         ArgumentCaptor<List<LinkedAccount>> captor = ArgumentCaptor.captor();
         verify(linkedAccountRepository).saveAll(captor.capture());
@@ -356,6 +360,92 @@ class LinkedAccountServiceTest {
 
         assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN))).isSameAs(dbDown);
         verify(codefAccountClient).unregister("cid-1", KOOKMIN, LinkedAccountType.BANK);
+    }
+
+    @Test
+    @DisplayName("여러 기관을 보내면 첫 기관이 발급한 connectedId에 다음 기관을 추가한다")
+    void linksSeveralInstitutionsWithOneConnectedId() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(isNull(), eq(KOOKMIN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefAccountClient.register(eq("cid-1"), eq(SHINHAN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", SHINHAN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("110123456789", "쏠통장", 2_000L)), null, null));
+        givenSavedEcho();
+
+        LinkedAccountLinkResponse response = service.link(USER_ID, request(KOOKMIN, SHINHAN));
+
+        assertThat(response.linkedAccounts()).extracting(LinkedAccountResponse::institutionName)
+                .containsExactly("국민은행", "신한은행");
+        assertThat(response.failed()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("일부 기관만 실패하면 성공한 기관은 저장하고 실패는 failed에 담는다")
+    void partialFailureGoesToFailedList() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(isNull(), eq(KOOKMIN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefAccountClient.register(eq("cid-1"), eq(SHINHAN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult(null, "CF-12801", "비밀번호가 일치하지 않습니다."));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        givenSavedEcho();
+
+        LinkedAccountLinkResponse response = service.link(USER_ID, request(KOOKMIN, SHINHAN));
+
+        assertThat(response.linkedAccounts()).hasSize(1);
+        assertThat(response.failed()).singleElement().satisfies(failure -> {
+            assertThat(failure.institutionCode()).isEqualTo(SHINHAN);
+            assertThat(failure.code()).isEqualTo("LINK_INSTITUTION_AUTH_FAILED");
+            assertThat(failure.message()).isEqualTo("비밀번호가 일치하지 않습니다.");
+        });
+    }
+
+    @Test
+    @DisplayName("한 곳도 연동하지 못하면 첫 실패 사유로 오류를 던진다")
+    void throwsFirstFailureWhenNothingLinked() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(any(), anyString(), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult(null, "CF-12801", "비밀번호가 일치하지 않습니다."));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN, SHINHAN)))
+                .isInstanceOfSatisfying(AccountLinkRejectedException.class,
+                        e -> assertThat(e.getInstitutionMessage()).isEqualTo("비밀번호가 일치하지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("같은 기관을 한 요청에 두 번 보내면 두 번째는 실패로 담는다")
+    void duplicateInstitutionInRequestFails() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(isNull(), eq(KOOKMIN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        givenSavedEcho();
+
+        LinkedAccountLinkResponse response = service.link(USER_ID, request(KOOKMIN, KOOKMIN));
+
+        assertThat(response.linkedAccounts()).hasSize(1);
+        assertThat(response.failed()).extracting(LinkedAccountLinkResponse.FailedInstitution::code)
+                .containsExactly("ACCOUNT_ALREADY_LINKED");
+    }
+
+    @Test
+    @DisplayName("기관 종류(type)가 기관코드와 맞지 않으면 지원하지 않는 기관으로 본다")
+    void typeMismatchIsUnsupported() {
+        givenUserAndExisting(List.of());
+        LinkedAccountCreateRequest.Item mismatched = new LinkedAccountCreateRequest.Item(
+                KOOKMIN, LinkedAccountType.CARD, LinkLoginType.ID_PASSWORD, "codef", "ENC", "980225");
+
+        assertThatThrownBy(() -> service.link(USER_ID, new LinkedAccountCreateRequest(List.of(mismatched))))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.ACCOUNT_INSTITUTION_NOT_SUPPORTED);
+        verifyNoInteractions(codefAccountClient);
     }
 
     private LinkedAccount ownedAccount(Long id, String institutionCode) {

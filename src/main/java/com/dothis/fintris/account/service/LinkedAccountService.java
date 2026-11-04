@@ -2,6 +2,8 @@ package com.dothis.fintris.account.service;
 
 import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
+import com.dothis.fintris.account.dto.LinkedAccountLinkResponse;
+import com.dothis.fintris.account.dto.LinkedAccountLinkResponse.FailedInstitution;
 import com.dothis.fintris.account.dto.LinkedAccountListResponse;
 import com.dothis.fintris.account.dto.LinkedAccountResponse;
 import com.dothis.fintris.account.entity.LinkedAccount;
@@ -15,7 +17,6 @@ import com.dothis.fintris.codef.client.CodefBankAccountClient;
 import com.dothis.fintris.codef.client.CodefBankAccountClient.BankAccountsResult;
 import com.dothis.fintris.codef.client.CodefCardClient;
 import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
-import com.dothis.fintris.global.crypto.RsaEncryptor;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
@@ -27,7 +28,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 // CODEF 호출이 오래 걸릴 수 있어 DB 트랜잭션을 걸지 않고, 저장만 saveAll의 트랜잭션으로 묶는다
 @Slf4j
@@ -43,7 +48,6 @@ public class LinkedAccountService {
     private final CodefAccountClient codefAccountClient;
     private final CodefBankAccountClient codefBankAccountClient;
     private final CodefCardClient codefCardClient;
-    private final RsaEncryptor rsaEncryptor;
 
     @Transactional(readOnly = true)
     public LinkedAccountListResponse getLinkedAccounts(Long userId) {
@@ -51,28 +55,57 @@ public class LinkedAccountService {
                 linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId));
     }
 
-    public List<LinkedAccountResponse> link(Long userId, LinkedAccountCreateRequest request) {
-        SupportedInstitution institution = SupportedInstitution.findByCode(request.institutionCode())
-                .orElseThrow(() -> GeneralException.of(AccountErrorCode.ACCOUNT_INSTITUTION_NOT_SUPPORTED));
+    public LinkedAccountLinkResponse link(Long userId, LinkedAccountCreateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> GeneralException.of(UserErrorCode.USER_NOT_FOUND));
 
         List<LinkedAccount> existing = linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId);
-        if (existing.stream().anyMatch(account -> account.getInstitutionCode().equals(institution.getCode()))) {
-            throw GeneralException.of(AccountErrorCode.ACCOUNT_ALREADY_LINKED);
-        }
+        Set<String> linkedCodes = existing.stream().map(LinkedAccount::getInstitutionCode)
+                .collect(Collectors.toCollection(HashSet::new));
         // connectedId는 사용자마다 하나이므로 이미 있으면 기관만 추가(add)한다
         String connectedId = existing.isEmpty() ? null : existing.get(0).getConnectedId();
 
+        List<LinkedAccountResponse> linked = new ArrayList<>();
+        List<FailedInstitution> failed = new ArrayList<>();
+        GeneralException firstFailure = null;
+        for (LinkedAccountCreateRequest.Item item : request.institutions()) {
+            try {
+                LinkOutcome outcome = linkOne(user, item, connectedId, linkedCodes);
+                connectedId = outcome.connectedId();
+                linkedCodes.add(item.institutionCode());
+                outcome.accounts().stream().map(LinkedAccountResponse::from).forEach(linked::add);
+            } catch (GeneralException e) {
+                failed.add(FailedInstitution.of(item.institutionCode(), e));
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+            }
+        }
+        // 하나도 연동하지 못했으면 첫 실패 사유로 오류 응답을 준다
+        if (linked.isEmpty() && firstFailure != null) {
+            throw firstFailure;
+        }
+        return new LinkedAccountLinkResponse(linked, failed);
+    }
+
+    private LinkOutcome linkOne(User user, LinkedAccountCreateRequest.Item item, String connectedId,
+                                Set<String> linkedCodes) {
+        SupportedInstitution institution = SupportedInstitution.findByCode(item.institutionCode())
+                .filter(found -> found.getType() == item.type())
+                .orElseThrow(() -> GeneralException.of(AccountErrorCode.ACCOUNT_INSTITUTION_NOT_SUPPORTED));
+        if (linkedCodes.contains(institution.getCode())) {
+            throw GeneralException.of(AccountErrorCode.ACCOUNT_ALREADY_LINKED);
+        }
+
         CodefAccountResult registered = codefAccountClient.register(connectedId, institution.getCode(),
-                institution.getType(), request.loginId(), rsaEncryptor.encrypt(request.password()), request.birthDate());
+                institution.getType(), item.loginId(), item.encryptedPassword(), item.birthDate());
         if (!registered.isSuccess()) {
             throw toLinkException(registered.failureCode(), registered.failureMessage());
         }
 
         FetchResult fetched;
         try {
-            fetched = fetchTargets(institution, registered.connectedId(), request.birthDate());
+            fetched = fetchTargets(institution, registered.connectedId(), item.birthDate());
         } catch (RuntimeException e) {
             rollbackRegistration(registered.connectedId(), institution);
             throw e;
@@ -96,7 +129,7 @@ public class LinkedAccountService {
             rollbackRegistration(registered.connectedId(), institution);
             throw e;
         }
-        return saved.stream().map(LinkedAccountResponse::from).toList();
+        return new LinkOutcome(registered.connectedId(), saved);
     }
 
     // CODEF 등록을 먼저 지우고 성공하면 같은 기관의 계좌·카드를 모두 해제한다
@@ -179,6 +212,9 @@ public class LinkedAccountService {
             return GeneralException.of(AccountErrorCode.ACCOUNT_ADDITIONAL_AUTH_UNSUPPORTED);
         }
         return new AccountLinkRejectedException(code, message);
+    }
+
+    private record LinkOutcome(String connectedId, List<LinkedAccount> accounts) {
     }
 
     private record LinkTarget(String number, String name, Long balance) {
