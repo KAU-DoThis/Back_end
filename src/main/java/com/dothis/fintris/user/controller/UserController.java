@@ -16,21 +16,19 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
-// TODO: JWT 인증이 붙으면 X-User-Id 헤더 대신 로그인 사용자에서 userId를 꺼낸다
 @Tag(name = "User", description = "동의 및 온보딩 (F-18, API 명세 v4 2장)")
 @RestController
 @RequiredArgsConstructor
 public class UserController {
 
-    private static final String USER_HEADER = "X-User-Id";
 
     private final UserService userService;
 
@@ -45,7 +43,7 @@ public class UserController {
                     + "CONSENT_REQUIRED_MISSING과 함께 result에 빠진 항목 목록을 준다")
     @PostMapping("/users/me/consents")
     public ApiResponse<ConsentSaveResponse> saveConsents(
-            @Parameter(description = "임시 사용자 ID") @RequestHeader(USER_HEADER) Long userId,
+            @AuthenticationPrincipal Long userId,
             @RequestBody @Valid ConsentSaveRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, userService.saveConsents(userId, request));
     }
@@ -53,7 +51,7 @@ public class UserController {
     @Operation(summary = "내 동의 현황", description = "항목별 가장 최근 상태")
     @GetMapping("/users/me/consents")
     public ApiResponse<ConsentStatusListResponse> getConsents(
-            @Parameter(description = "임시 사용자 ID") @RequestHeader(USER_HEADER) Long userId) {
+            @AuthenticationPrincipal Long userId) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, userService.getConsents(userId));
     }
 
@@ -62,7 +60,7 @@ public class UserController {
                     + "TERMS·PRIVACY·AGE_14 철회는 CONSENT_WITHDRAW_REQUIRES_LEAVE(탈퇴로 안내)")
     @PatchMapping("/users/me/consents/{item}")
     public ApiResponse<ConsentChangeResponse> changeConsent(
-            @Parameter(description = "임시 사용자 ID") @RequestHeader(USER_HEADER) Long userId,
+            @AuthenticationPrincipal Long userId,
             @Parameter(description = "동의 항목", example = "CODEF") @PathVariable String item,
             @RequestBody @Valid ConsentChangeRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, userService.changeConsent(userId, item, request));
@@ -71,14 +69,14 @@ public class UserController {
     @Operation(summary = "온보딩 상태 조회", description = "앱 시작 시 onboardingStep 화면으로 보낸다. 설정이 없으면 기본값으로 만든다")
     @GetMapping("/users/me/settings")
     public ApiResponse<UserSettingResponse> getSettings(
-            @Parameter(description = "임시 사용자 ID") @RequestHeader(USER_HEADER) Long userId) {
+            @AuthenticationPrincipal Long userId) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, userService.getSettings(userId));
     }
 
     @Operation(summary = "온보딩 상태 수정", description = "보낸 필드만 바뀐다. blocksConfirmed는 초기 블록 확정 API가 바꾼다")
     @PatchMapping("/users/me/settings")
     public ApiResponse<UserSettingResponse> updateSettings(
-            @Parameter(description = "임시 사용자 ID") @RequestHeader(USER_HEADER) Long userId,
+            @AuthenticationPrincipal Long userId,
             @RequestBody @Valid UserSettingUpdateRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, userService.updateSettings(userId, request));
     }
