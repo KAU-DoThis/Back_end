@@ -8,6 +8,7 @@ import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockCategory;
+import com.dothis.fintris.block.entity.BlockColor;
 import com.dothis.fintris.block.entity.BlockCreatedBy;
 import com.dothis.fintris.block.entity.BlockRule;
 import com.dothis.fintris.block.entity.BlockStatus;
@@ -100,6 +101,7 @@ public class BlockService {
                 .type(request.type())
                 .name(request.name())
                 .icon(request.icon())
+                .color(request.color() != null ? request.color() : BlockColor.defaultFor(request.type()))
                 .targetAmount(request.targetAmount())
                 .startDate(startDate)
                 .dueDate(dueDate)
@@ -124,7 +126,7 @@ public class BlockService {
         validateNewDueDate(request.dueDate(), LocalDate.now(KST));
         validate(block.getType(), targetAmount, startDate, dueDate, rule);
 
-        block.update(request.name(), request.icon(), request.targetAmount(),
+        block.update(request.name(), request.icon(), request.color(), request.targetAmount(),
                 request.startDate(), request.dueDate(), request.rule());
         return toResponse(block);
     }

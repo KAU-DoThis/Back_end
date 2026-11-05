@@ -140,6 +140,7 @@ CREATE TABLE blocks (
     type                VARCHAR(20)  NOT NULL COMMENT 'SPENDING / GOAL / FIXED',
     name                VARCHAR(50)  NOT NULL,
     icon                VARCHAR(50)  NULL,
+    color               VARCHAR(1)   NULL COMMENT 'I / O / T / S / Z / J / L. NULL이면 유형별 기본색',
     balance             BIGINT       NOT NULL DEFAULT 0,
     is_default          TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '기본 사용형 블록, 삭제 불가',
     target_amount       BIGINT       NULL COMMENT '목표형만',

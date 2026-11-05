@@ -1,5 +1,6 @@
 package com.dothis.fintris.block.dto;
 
+import com.dothis.fintris.block.entity.BlockColor;
 import com.dothis.fintris.block.entity.BlockRule;
 import com.dothis.fintris.block.entity.BlockType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -20,6 +21,9 @@ public record BlockCreateRequest(
 
         @Schema(description = "아이콘 키", example = "airplane")
         @Size(max = 50) String icon,
+
+        @Schema(description = "블록 색 코드 I·O·T·S·Z·J·L. 없으면 유형별 기본색", example = "O")
+        BlockColor color,
 
         @Schema(description = "목표 금액(원). 목표형 필수", example = "600000")
         Long targetAmount,
