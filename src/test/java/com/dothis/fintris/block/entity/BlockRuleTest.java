@@ -31,7 +31,9 @@ class BlockRuleTest {
 
         String json = objectMapper.writeValueAsString(rule);
 
-        assertThat(json).contains("\"payDay\":25").doesNotContain("pay_day");
+        assertThat(json).contains("\"payDay\":25").doesNotContain("pay_day")
+                // 해당 유형에 없는 키는 내보내지 않는다
+                .doesNotContain("monthlyAmount");
     }
 
     @Test

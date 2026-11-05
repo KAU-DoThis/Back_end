@@ -2,10 +2,12 @@ package com.dothis.fintris.block.entity;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 // API 명세 v4 블록 객체의 rule. 유형별로 필요한 값만 쓴다
-// 예전 snake_case 키(pay_day 등)로 저장된 행도 읽을 수 있게 별칭을 둔다
+// 예전 snake_case 키(pay_day 등)로 저장된 행도 읽을 수 있게 별칭을 둔다. 값이 없는 키는 내보내지 않는다
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
 @Schema(description = "블록 규칙. 유형별로 필요한 값만 보낸다")
 public record BlockRule(
@@ -31,6 +33,7 @@ public record BlockRule(
         Alerts alerts
 ) {
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
     @Schema(description = "납부 확인 조건. 이 조건에 맞는 출금이 나가면 납부 완료로 본다")
     public record MatchCondition(
@@ -47,6 +50,7 @@ public record BlockRule(
         EXACT, RANGE
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
     @Schema(description = "고정지출형 알림")
     public record Alerts(

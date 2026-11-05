@@ -2,6 +2,7 @@ package com.dothis.fintris.block.controller;
 
 import com.dothis.fintris.block.dto.BlockCategoryRequest;
 import com.dothis.fintris.block.dto.BlockCreateRequest;
+import com.dothis.fintris.block.dto.BlockListResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
@@ -26,23 +27,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 @Tag(name = "Block", description = "금융 블록 (F-04)")
 @RestController
 @RequestMapping("/blocks")
 @RequiredArgsConstructor
 public class BlockController {
 
-
     private final BlockService blockService;
 
     @Operation(summary = "블록 목록 조회", description = "display_order 순, 삭제된 블록 제외")
     @GetMapping
-    public ApiResponse<List<BlockResponse>> getBlocks(
+    public ApiResponse<BlockListResponse> getBlocks(
             @AuthenticationPrincipal Long userId,
             @Parameter(description = "블록 유형 필터") @RequestParam(required = false) BlockType type) {
-        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockService.getBlocks(userId, type));
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK,
+                new BlockListResponse(blockService.getBlocks(userId, type)));
     }
 
     @Operation(summary = "블록 상세 조회")
@@ -65,10 +64,11 @@ public class BlockController {
     // /order가 /{blockId}보다 먼저 매칭된다 (고정 경로 우선)
     @Operation(summary = "블록 순서 변경", description = "삭제되지 않은 내 블록 전체 ID를 원하는 순서로 보낸다")
     @PatchMapping("/order")
-    public ApiResponse<List<BlockResponse>> changeOrder(
+    public ApiResponse<BlockListResponse> changeOrder(
             @AuthenticationPrincipal Long userId,
             @RequestBody @Valid BlockOrderRequest request) {
-        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockService.changeOrder(userId, request));
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK,
+                new BlockListResponse(blockService.changeOrder(userId, request)));
     }
 
     @Operation(summary = "블록 수정", description = "보낸 필드만 바뀐다. 유형은 바꿀 수 없다")
