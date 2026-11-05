@@ -2,6 +2,7 @@ package com.dothis.fintris.block.controller;
 
 import com.dothis.fintris.block.dto.BlockCategoryRequest;
 import com.dothis.fintris.block.dto.BlockCreateRequest;
+import com.dothis.fintris.block.dto.BlockDeleteResponse;
 import com.dothis.fintris.block.dto.BlockListResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
 import com.dothis.fintris.block.dto.BlockResponse;
@@ -80,13 +81,12 @@ public class BlockController {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockService.updateBlock(userId, blockId, request));
     }
 
-    @Operation(summary = "블록 삭제", description = "소프트 삭제. 잔액은 미배분으로 돌아간다. 기본 블록은 삭제 불가")
+    @Operation(summary = "블록 삭제", description = "소프트 삭제. 남은 잔액은 '남은 돈' 나눌 돈으로 돌아간다. 기본 블록은 삭제 불가")
     @DeleteMapping("/{blockId}")
-    public ApiResponse<Void> deleteBlock(
+    public ApiResponse<BlockDeleteResponse> deleteBlock(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long blockId) {
-        blockService.deleteBlock(userId, blockId);
-        return ApiResponse.onSuccess(GeneralSuccessCode.OK, null);
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockService.deleteBlock(userId, blockId));
     }
 
     @Operation(summary = "블록 카테고리 연결 설정", description = "보낸 목록으로 통째로 바꾼다")

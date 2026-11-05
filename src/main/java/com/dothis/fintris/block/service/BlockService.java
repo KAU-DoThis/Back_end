@@ -3,6 +3,7 @@ package com.dothis.fintris.block.service;
 import com.dothis.fintris.block.code.BlockErrorCode;
 import com.dothis.fintris.block.dto.BlockCategoryRequest;
 import com.dothis.fintris.block.dto.BlockCreateRequest;
+import com.dothis.fintris.block.dto.BlockDeleteResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
@@ -24,6 +25,10 @@ import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
 import com.dothis.fintris.user.repository.UserRepository;
+import com.dothis.fintris.waitingfund.dto.WaitingFundResponse;
+import com.dothis.fintris.waitingfund.entity.WaitingFund;
+import com.dothis.fintris.waitingfund.entity.WaitingFundSource;
+import com.dothis.fintris.waitingfund.repository.WaitingFundRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +57,7 @@ public class BlockService {
     private final BlockTransferRepository blockTransferRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
+    private final WaitingFundRepository waitingFundRepository;
 
     public List<BlockResponse> getBlocks(Long userId, BlockType type) {
         List<Block> blocks = (type == null)
@@ -145,7 +151,7 @@ public class BlockService {
     }
 
     @Transactional
-    public void deleteBlock(Long userId, Long blockId) {
+    public BlockDeleteResponse deleteBlock(Long userId, Long blockId) {
         Block block = findOwnedBlock(userId, blockId);
         if (block.isDefault()) {
             throw GeneralException.of(BlockErrorCode.BLOCK_DEFAULT_UNDELETABLE);
@@ -153,16 +159,26 @@ public class BlockService {
 
         blockCategoryRepository.deleteAllByBlockId(blockId);
         long returned = block.delete(LocalDateTime.now(KST));
-
-        // 남은 잔액은 미배분(to = null)으로 돌아간 것으로 기록한다
-        if (returned > 0) {
-            blockTransferRepository.save(BlockTransfer.builder()
-                    .fromBlock(block)
-                    .toBlock(null)
-                    .amount(returned)
-                    .reason(TransferReason.MANUAL)
-                    .build());
+        if (returned == 0) {
+            return new BlockDeleteResponse(blockId, 0, null);
         }
+
+        // 남은 잔액은 "남은 돈" 나눌 돈으로 옮겨 불변식(블록 합 + 나눌 돈 합 = 실제 잔액)을 지킨다 (v4 6장)
+        WaitingFund fund = waitingFundRepository.save(WaitingFund.builder()
+                .user(block.getUser())
+                .source(WaitingFundSource.OTHER)
+                .label(WaitingFundSource.OTHER.getDefaultLabel())
+                .description("'" + block.getName() + "' 블록에서 돌아온 돈")
+                .amount(returned)
+                .originalAmount(returned)
+                .build());
+        blockTransferRepository.save(BlockTransfer.builder()
+                .fromBlock(block)
+                .toWaitingFund(fund)
+                .amount(returned)
+                .reason(TransferReason.MANUAL)
+                .build());
+        return new BlockDeleteResponse(blockId, returned, WaitingFundResponse.from(fund));
     }
 
     @Transactional
