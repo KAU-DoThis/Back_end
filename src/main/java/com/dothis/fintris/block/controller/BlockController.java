@@ -54,7 +54,7 @@ public class BlockController {
     }
 
     @Operation(summary = "블록 생성",
-            description = "목표형은 targetAmount·dueDate 필수, 고정지출형은 rule.pay_day·pay_amount 필수")
+            description = "목표형은 targetAmount·dueDate 필수, 고정지출형은 rule.payDay·payAmount 필수")
     @PostMapping
     public ApiResponse<BlockResponse> createBlock(
             @AuthenticationPrincipal Long userId,

@@ -15,6 +15,7 @@ public enum BlockErrorCode implements BaseErrorCode {
     BLOCK_INVALID_DUE_DATE(HttpStatus.BAD_REQUEST, "BLOCK_INVALID_DUE_DATE", "기한은 오늘 이후여야 합니다."),
     BLOCK_INVALID_PAY_DAY(HttpStatus.BAD_REQUEST, "BLOCK_INVALID_PAY_DAY", "납부일은 1~31 사이여야 합니다."),
     BLOCK_INVALID_FIXED_RULE(HttpStatus.BAD_REQUEST, "BLOCK_INVALID_FIXED_RULE", "고정지출형 블록은 0보다 큰 납부액이 필요합니다."),
+    BLOCK_INVALID_RULE(HttpStatus.BAD_REQUEST, "BLOCK_INVALID_RULE", "블록 규칙 값이 올바르지 않습니다."),
     BLOCK_INVALID_ORDER(HttpStatus.BAD_REQUEST, "BLOCK_INVALID_ORDER", "블록 순서 목록이 현재 블록과 일치하지 않습니다."),
     BLOCK_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "BLOCK_CATEGORY_NOT_FOUND", "존재하지 않는 카테고리가 포함되어 있습니다."),
     BLOCK_CATEGORY_DUPLICATED(HttpStatus.CONFLICT, "BLOCK_CATEGORY_DUPLICATED", "이미 다른 블록에 연결된 카테고리입니다."),

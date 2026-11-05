@@ -34,7 +34,7 @@ public record BlockCreateRequest(
         @Schema(description = "사용형=기간 끝(없으면 이번 달 말일), 목표형=기한(필수)", example = "2027-02-28")
         LocalDate dueDate,
 
-        @Schema(description = "규칙. 고정지출형은 pay_day·pay_amount 필수")
+        @Schema(description = "규칙. 고정지출형은 payDay·payAmount 필수")
         BlockRule rule
 ) {
 }

@@ -118,16 +118,16 @@ public class BlockService {
     public BlockResponse updateBlock(Long userId, Long blockId, BlockUpdateRequest request) {
         Block block = findOwnedBlock(userId, blockId);
 
-        // 바뀐 뒤의 값 기준으로 검증한다
+        // 바뀐 뒤의 값 기준으로 검증한다. rule은 보낸 키만 합친다
         Long targetAmount = (request.targetAmount() != null) ? request.targetAmount() : block.getTargetAmount();
         LocalDate startDate = (request.startDate() != null) ? request.startDate() : block.getStartDate();
         LocalDate dueDate = (request.dueDate() != null) ? request.dueDate() : block.getDueDate();
-        BlockRule rule = (request.rule() != null) ? request.rule() : block.getRule();
+        BlockRule rule = (block.getRule() != null) ? block.getRule().mergedWith(request.rule()) : request.rule();
         validateNewDueDate(request.dueDate(), LocalDate.now(KST));
         validate(block.getType(), targetAmount, startDate, dueDate, rule);
 
         block.update(request.name(), request.icon(), request.color(), request.targetAmount(),
-                request.startDate(), request.dueDate(), request.rule());
+                request.startDate(), request.dueDate(), rule);
         return toResponse(block);
     }
 
@@ -234,8 +234,8 @@ public class BlockService {
         if (dueDate != null && dueDate.isBefore(startDate)) {
             throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_DUE_DATE);
         }
-        if (rule != null && rule.payDay() != null && (rule.payDay() < 1 || rule.payDay() > 31)) {
-            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_PAY_DAY);
+        if (rule != null) {
+            validateRule(rule);
         }
 
         switch (type) {
@@ -258,5 +258,31 @@ public class BlockService {
             case SPENDING -> {
             }
         }
+    }
+
+    // 규칙 값의 범위만 본다. 유형별 필수 값은 validate에서 본다
+    private void validateRule(BlockRule rule) {
+        if (rule.payDay() != null && (rule.payDay() < 1 || rule.payDay() > 31)) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_PAY_DAY);
+        }
+        if (rule.startDay() != null && (rule.startDay() < 1 || rule.startDay() > 31)) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+        }
+        if (isNotPositive(rule.monthlyAmount()) || (rule.monthlyTarget() != null && rule.monthlyTarget() < 0)) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+        }
+        BlockRule.MatchCondition match = rule.matchCondition();
+        if (match != null) {
+            if (match.dayWindow() != null && match.dayWindow() < 0) {
+                throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+            }
+            if (match.minAmount() != null && match.maxAmount() != null && match.minAmount() > match.maxAmount()) {
+                throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+            }
+        }
+    }
+
+    private boolean isNotPositive(Long amount) {
+        return amount != null && amount <= 0;
     }
 }

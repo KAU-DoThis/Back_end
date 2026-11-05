@@ -29,7 +29,7 @@ public record BlockUpdateRequest(
         @Schema(description = "기간 끝 또는 기한", example = "2027-03-31")
         LocalDate dueDate,
 
-        @Schema(description = "규칙. 보내면 통째로 바뀐다")
+        @Schema(description = "규칙. 보낸 키만 바뀐다 (matchCondition은 통째로, alerts는 키별로)")
         BlockRule rule
 ) {
 }
