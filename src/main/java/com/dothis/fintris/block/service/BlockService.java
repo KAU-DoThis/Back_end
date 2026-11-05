@@ -124,6 +124,10 @@ public class BlockService {
     @Transactional
     public BlockResponse updateBlock(Long userId, Long blockId, BlockUpdateRequest request) {
         Block block = findOwnedBlock(userId, blockId);
+        // 조회한 뒤 다른 곳에서 바뀌었으면 덮어쓰지 않는다
+        if (request.version() != null && !request.version().equals(block.getVersion())) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_VERSION_CONFLICT);
+        }
 
         // 바뀐 뒤의 값 기준으로 검증한다. rule은 보낸 키만 합친다
         Long targetAmount = (request.targetAmount() != null) ? request.targetAmount() : block.getTargetAmount();
@@ -135,6 +139,8 @@ public class BlockService {
 
         block.update(request.name(), request.icon(), request.color(), request.targetAmount(),
                 request.startDate(), request.dueDate(), rule);
+        // 응답에 올라간 version을 담으려면 먼저 저장해야 한다. 안 그러면 FE가 옛 version으로 다음 수정을 보낸다
+        blockRepository.flush();
         return toResponse(block);
     }
 
@@ -175,6 +181,7 @@ public class BlockService {
         for (int i = 0; i < ids.size(); i++) {
             blockById.get(ids.get(i)).changeOrder(i);
         }
+        blockRepository.flush();
         return getBlocks(userId, null);
     }
 
@@ -236,7 +243,7 @@ public class BlockService {
     private void validate(BlockType type, Long targetAmount, LocalDate startDate,
                           LocalDate dueDate, BlockRule rule) {
         if (targetAmount != null && targetAmount <= 0) {
-            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET);
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET_AMOUNT);
         }
         if (dueDate != null && dueDate.isBefore(startDate)) {
             throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_DUE_DATE);
@@ -248,7 +255,7 @@ public class BlockService {
         switch (type) {
             case GOAL -> {
                 if (targetAmount == null) {
-                    throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET);
+                    throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET_AMOUNT);
                 }
                 if (dueDate == null) {
                     throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_DUE_DATE);

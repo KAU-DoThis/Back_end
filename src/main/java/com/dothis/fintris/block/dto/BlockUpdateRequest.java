@@ -30,6 +30,10 @@ public record BlockUpdateRequest(
         LocalDate dueDate,
 
         @Schema(description = "규칙. 보낸 키만 바뀐다 (matchCondition은 통째로, alerts는 키별로)")
-        BlockRule rule
+        BlockRule rule,
+
+        @Schema(description = "조회한 블록의 version. 그 사이 바뀌었으면 409 BLOCK_VERSION_CONFLICT. 비우면 검사하지 않는다",
+                example = "7")
+        Long version
 ) {
 }
