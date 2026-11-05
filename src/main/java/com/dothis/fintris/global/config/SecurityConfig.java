@@ -5,6 +5,7 @@ import com.dothis.fintris.global.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -40,8 +41,8 @@ public class SecurityConfig {
                 }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(WebConfig.API_PREFIX + "/auth/**").permitAll()
-                        // TODO: 블록 API가 X-User-Id 대신 로그인 사용자를 쓰도록 바뀌면 제거
-                        .requestMatchers(WebConfig.API_PREFIX + "/blocks/**").permitAll()
+                        // 가입 전 약관 동의 화면에서 부른다 (API 명세 v4 2장)
+                        .requestMatchers(HttpMethod.GET, WebConfig.API_PREFIX + "/consents/items").permitAll()
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
