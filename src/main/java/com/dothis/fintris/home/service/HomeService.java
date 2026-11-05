@@ -10,6 +10,8 @@ import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.home.dto.HomeResponse;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.repository.UserRepository;
+import com.dothis.fintris.waitingfund.dto.WaitingFundResponse;
+import com.dothis.fintris.waitingfund.service.WaitingFundService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,7 @@ public class HomeService {
     private final LinkedAccountRepository linkedAccountRepository;
     private final BlockRepository blockRepository;
     private final BlockService blockService;
+    private final WaitingFundService waitingFundService;
     private final UserRepository userRepository;
 
     public HomeResponse getHome(Long userId) {
@@ -56,8 +59,10 @@ public class HomeService {
                 .map(LocalDateTime::toLocalDate)
                 .orElse(LocalDate.now(KST));
 
-        // TODO: 나눌 돈(#16)이 붙으면 대기 자금 합도 더한다
-        boolean overAllocated = blockRepository.sumBalanceByUserId(userId) > totalBalance;
+        // 블록 합계 + 나눌 돈이 실제 잔액보다 크면 경고 (v4 5장)
+        List<WaitingFundResponse> waitingFunds = waitingFundService.getWaitingFunds(userId);
+        long waitingTotal = waitingFunds.stream().mapToLong(WaitingFundResponse::amount).sum();
+        boolean overAllocated = blockRepository.sumBalanceByUserId(userId) + waitingTotal > totalBalance;
 
         return new HomeResponse(
                 asOf,
@@ -66,7 +71,7 @@ public class HomeService {
                 getDailyGuide(userId),
                 accounts.stream().map(HomeResponse.AccountItem::from).toList(),
                 null,
-                List.of(),
+                waitingFunds,
                 overAllocated,
                 blockService.getBlocks(userId, null),
                 oldest(accounts, LinkedAccount::getLastSyncedAt).orElse(null),
