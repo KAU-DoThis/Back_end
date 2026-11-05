@@ -51,6 +51,11 @@ public class Block extends BaseEntity {
     @Column(length = 50)
     private String icon;
 
+    // 색을 고르기 전에 만든 블록은 null이라 colorOrDefault()로 읽는다
+    @Enumerated(EnumType.STRING)
+    @Column(length = 1)
+    private BlockColor color;
+
     @Column(nullable = false)
     private long balance;
 
@@ -89,11 +94,16 @@ public class Block extends BaseEntity {
         return user.getId().equals(userId);
     }
 
-    // null인 값은 바꾸지 않는다 (PATCH)
-    public void update(String name, String icon, Long targetAmount,
+    public BlockColor colorOrDefault() {
+        return (color != null) ? color : BlockColor.defaultFor(type);
+    }
+
+    // null인 값은 바꾸지 않는다 (PATCH). rule은 서비스에서 병합한 결과를 받는다
+    public void update(String name, String icon, BlockColor color, Long targetAmount,
                        LocalDate startDate, LocalDate dueDate, BlockRule rule) {
         if (name != null) this.name = name;
         if (icon != null) this.icon = icon;
+        if (color != null) this.color = color;
         if (targetAmount != null) this.targetAmount = targetAmount;
         if (startDate != null) this.startDate = startDate;
         if (dueDate != null) this.dueDate = dueDate;
