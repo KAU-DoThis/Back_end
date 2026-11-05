@@ -140,6 +140,7 @@ CREATE TABLE blocks (
     type                VARCHAR(20)  NOT NULL COMMENT 'SPENDING / GOAL / FIXED',
     name                VARCHAR(50)  NOT NULL,
     icon                VARCHAR(50)  NULL,
+    color               VARCHAR(1)   NULL COMMENT 'I / O / T / S / Z / J / L. NULL이면 유형별 기본색',
     balance             BIGINT       NOT NULL DEFAULT 0,
     is_default          TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '기본 사용형 블록, 삭제 불가',
     target_amount       BIGINT       NULL COMMENT '목표형만',
@@ -184,17 +185,43 @@ CREATE TABLE block_status_logs (
     CONSTRAINT fk_block_status_logs_block FOREIGN KEY (block_id) REFERENCES blocks (block_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- from/to NULL = 미배분. 둘 다 NULL은 서비스에서 막는다
+-- 나눌 돈(대기 자금, API 명세 v4 6-1장). 블록 잔액 합 + 대기 자금 합 = 연동 계좌 실제 잔액
+CREATE TABLE waiting_funds (
+    waiting_fund_id       BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id               BIGINT       NOT NULL,
+    source                VARCHAR(20)  NOT NULL COMMENT 'SAVING / REGULAR_INCOME / EXTRA_INCOME / OTHER',
+    label                 VARCHAR(50)  NOT NULL COMMENT '홈 카드 제목 (절약분, 정기 입금 · 월급 등)',
+    description           VARCHAR(100) NULL COMMENT '9월 절약 확정, 10월 12일 입금 등',
+    amount                BIGINT       NOT NULL COMMENT '남은 금액. 0이면 목록에서 빠짐',
+    original_amount       BIGINT       NOT NULL,
+    source_transaction_id BIGINT       NULL COMMENT '입금 거래 (FK는 거래 기능이 붙을 때 추가)',
+    saving_goal_id        BIGINT       NULL COMMENT '절약 목표 확정 (FK는 절약 목표 기능이 붙을 때 추가)',
+    income_source_id      BIGINT       NULL COMMENT '입금원 (income_sources 테이블 추가 후 FK)',
+    breakdown             JSON         NULL COMMENT '절약분 카테고리별 내역 [{label, amount}]',
+    cleared_at            DATETIME(6)  NULL COMMENT '다 나눈 시각',
+    version               BIGINT       NOT NULL DEFAULT 0 COMMENT '@Version 낙관적 잠금',
+    created_at            DATETIME(6)  NOT NULL,
+    updated_at            DATETIME(6)  NOT NULL,
+    PRIMARY KEY (waiting_fund_id),
+    KEY idx_waiting_funds_user_amount (user_id, amount),
+    CONSTRAINT fk_waiting_funds_user FOREIGN KEY (user_id) REFERENCES users (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 보내는 쪽(from)과 받는 쪽(to)은 각각 블록이나 나눌 돈 중 하나. 둘 다 없는 경우는 서비스에서 막는다
 CREATE TABLE block_transfers (
-    block_transfer_id   BIGINT       NOT NULL AUTO_INCREMENT,
-    from_block_id       BIGINT       NULL,
-    to_block_id         BIGINT       NULL,
-    amount              BIGINT       NOT NULL,
-    reason              VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI',
-    created_at          DATETIME(6)  NOT NULL COMMENT '= executed_at',
+    block_transfer_id     BIGINT       NOT NULL AUTO_INCREMENT,
+    from_block_id         BIGINT       NULL,
+    to_block_id           BIGINT       NULL,
+    from_waiting_fund_id  BIGINT       NULL COMMENT '나눌 돈에서 배분',
+    to_waiting_fund_id    BIGINT       NULL COMMENT '블록 삭제 시 나눌 돈으로 반환',
+    amount                BIGINT       NOT NULL,
+    reason                VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI / ALLOCATION / SUGGESTION',
+    created_at            DATETIME(6)  NOT NULL COMMENT '= executed_at',
     PRIMARY KEY (block_transfer_id),
-    CONSTRAINT fk_block_transfers_from FOREIGN KEY (from_block_id) REFERENCES blocks (block_id),
-    CONSTRAINT fk_block_transfers_to   FOREIGN KEY (to_block_id)   REFERENCES blocks (block_id)
+    CONSTRAINT fk_block_transfers_from      FOREIGN KEY (from_block_id)        REFERENCES blocks (block_id),
+    CONSTRAINT fk_block_transfers_to        FOREIGN KEY (to_block_id)          REFERENCES blocks (block_id),
+    CONSTRAINT fk_block_transfers_from_fund FOREIGN KEY (from_waiting_fund_id) REFERENCES waiting_funds (waiting_fund_id),
+    CONSTRAINT fk_block_transfers_to_fund   FOREIGN KEY (to_waiting_fund_id)   REFERENCES waiting_funds (waiting_fund_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

@@ -3,6 +3,7 @@ package com.dothis.fintris.home.dto;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.block.dto.BlockResponse;
+import com.dothis.fintris.waitingfund.dto.WaitingFundResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
@@ -31,9 +32,8 @@ public record HomeResponse(
         @Schema(description = "제안 배너. 없으면 null")
         Object suggestion,
 
-        // TODO: 나눌 돈(#16)이 붙으면 대기 자금 목록으로 채운다
         @Schema(description = "나눌 돈(대기 자금) 목록. 금액이 0보다 큰 것만, 비어 있으면 영역을 숨긴다")
-        List<Object> waitingFunds,
+        List<WaitingFundResponse> waitingFunds,
 
         @Schema(description = "블록 합계 + 나눌 돈 > 실제 잔액이면 true (경고 + 줄일 블록 선택)", example = "false")
         boolean overAllocated,
