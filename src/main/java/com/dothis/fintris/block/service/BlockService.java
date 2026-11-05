@@ -91,6 +91,13 @@ public class BlockService {
         validateNewDueDate(dueDate, today);
         validate(request.type(), request.targetAmount(), startDate, dueDate, request.rule());
 
+        // 목표형은 월 확보 금액을 비우면 권장값(남은 금액 ÷ 남은 개월, 올림)으로 채운다 (F-07). 새 블록은 잔액 0
+        BlockRule rule = request.rule();
+        if (request.type() == BlockType.GOAL && (rule == null || rule.monthlyTarget() == null)) {
+            long recommended = BlockCalculator.recommendedMonthlyTarget(request.targetAmount(), 0, today, dueDate);
+            rule = ((rule != null) ? rule : BlockRule.empty()).withMonthlyTarget(recommended);
+        }
+
         // 새 블록은 맨 뒤에 둔다
         int nextOrder = blockRepository.findTopByUser_IdAndDeletedAtIsNullOrderByDisplayOrderDesc(userId)
                 .map(last -> last.getDisplayOrder() + 1)
@@ -105,7 +112,7 @@ public class BlockService {
                 .targetAmount(request.targetAmount())
                 .startDate(startDate)
                 .dueDate(dueDate)
-                .rule(request.rule())
+                .rule(rule)
                 .status(BlockStatus.SAFE) // 상태 판정은 S3 이후. 지금은 SAFE 고정
                 .createdBy(BlockCreatedBy.USER)
                 .displayOrder(nextOrder)
