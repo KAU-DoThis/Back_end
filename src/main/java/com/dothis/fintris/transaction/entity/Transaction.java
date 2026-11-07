@@ -94,4 +94,8 @@ public class Transaction extends BaseEntity {
     // CODEF 거래에는 고유 ID가 없어 계좌·일시·방향·금액·잔액으로 직접 만든 중복 판정 키
     @Column(unique = true)
     private String externalKey;
+
+    public boolean isOwnedBy(Long userId) {
+        return user.getId().equals(userId);
+    }
 }
