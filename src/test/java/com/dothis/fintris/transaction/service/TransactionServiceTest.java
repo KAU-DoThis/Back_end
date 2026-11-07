@@ -1,18 +1,24 @@
 package com.dothis.fintris.transaction.service;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.entity.LinkedAccountType;
+import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.category.entity.CategoryType;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.code.TransactionErrorCode;
+import com.dothis.fintris.transaction.dto.TransactionListFilter;
+import com.dothis.fintris.transaction.dto.TransactionListResponse;
 import com.dothis.fintris.transaction.dto.TransactionResponse;
 import com.dothis.fintris.transaction.entity.ClassifiedBy;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionDirection;
 import com.dothis.fintris.transaction.entity.TransactionSource;
 import com.dothis.fintris.transaction.entity.TransactionStatus;
+import com.dothis.fintris.transaction.repository.DayTotal;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
+import com.dothis.fintris.transaction.repository.TransactionTotals;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.User;
 import org.junit.jupiter.api.DisplayName;
@@ -21,14 +27,24 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,6 +54,7 @@ class TransactionServiceTest {
     private static final Long TRANSACTION_ID = 101L;
 
     @Mock TransactionRepository transactionRepository;
+    @Mock LinkedAccountRepository linkedAccountRepository;
     @InjectMocks TransactionService service;
 
     private User user(Long id) {
@@ -134,5 +151,116 @@ class TransactionServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting(e -> ((GeneralException) e).getCode())
                 .isEqualTo(TransactionErrorCode.TRANSACTION_NOT_FOUND);
+    }
+
+    private static final YearMonth OCTOBER = YearMonth.of(2026, 10);
+    private static final LocalDateTime OCT_1 = LocalDateTime.of(2026, 10, 1, 0, 0);
+    private static final LocalDateTime NOV_1 = LocalDateTime.of(2026, 11, 1, 0, 0);
+
+    private Transaction at(long id, LocalDateTime occurredAt) {
+        Transaction transaction = transaction(user(USER_ID)).occurredAt(occurredAt).build();
+        ReflectionTestUtils.setField(transaction, "id", id);
+        return transaction;
+    }
+
+    @Test
+    @DisplayName("목록은 최신 날짜부터 묶고 날짜별 합계와 요약을 붙인다")
+    void getTransactions() {
+        Transaction late = at(3L, LocalDateTime.of(2026, 10, 14, 20, 0));
+        Transaction early = at(2L, LocalDateTime.of(2026, 10, 14, 9, 0));
+        Transaction older = at(1L, LocalDateTime.of(2026, 10, 10, 12, 0));
+        when(transactionRepository.sumTotals(USER_ID, OCT_1, NOV_1, null, null))
+                .thenReturn(new TransactionTotals(588_000L, 30_000L, 1L, 2L));
+        when(transactionRepository.findPage(eq(USER_ID), eq(OCT_1), eq(NOV_1), isNull(), isNull(), isNull(), any()))
+                .thenReturn(new SliceImpl<>(List.of(late, early, older), PageRequest.of(0, 3), true));
+        when(transactionRepository.sumByDay(USER_ID, LocalDateTime.of(2026, 10, 10, 0, 0),
+                LocalDateTime.of(2026, 10, 15, 0, 0), null, null, null))
+                .thenReturn(List.of(new DayTotal(LocalDate.of(2026, 10, 14), -15_300L),
+                        new DayTotal(LocalDate.of(2026, 10, 10), -30_800L)));
+
+        TransactionListResponse response = service.getTransactions(USER_ID, OCTOBER, null, null,
+                TransactionListFilter.ALL, 0, 3);
+
+        assertThat(response.summary().period())
+                .isEqualTo(new TransactionListResponse.Period(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)));
+        assertThat(response.summary().spent()).isEqualTo(588_000L);
+        assertThat(response.summary().income()).isEqualTo(30_000L);
+        assertThat(response.summary().account()).isNull();
+        assertThat(response.counts()).isEqualTo(new TransactionListResponse.Counts(2L, 1L));
+        assertThat(response.days()).extracting(TransactionListResponse.Day::date)
+                .containsExactly(LocalDate.of(2026, 10, 14), LocalDate.of(2026, 10, 10));
+        assertThat(response.days()).extracting(TransactionListResponse.Day::dayTotal).containsExactly(-15_300L, -30_800L);
+        assertThat(response.days().getFirst().items()).extracting(item -> item.transaction().transactionId())
+                .containsExactly(3L, 2L);
+        assertThat(response.hasNext()).isTrue();
+        assertThat(response.pendingQuestion()).isNull();
+    }
+
+    @Test
+    @DisplayName("filter는 목록과 날짜별 합계에만 걸고 요약에는 걸지 않는다")
+    void filterAppliesToListOnly() {
+        Transaction review = at(1L, LocalDateTime.of(2026, 10, 10, 12, 0));
+        when(transactionRepository.sumTotals(USER_ID, OCT_1, NOV_1, null, null))
+                .thenReturn(new TransactionTotals(0L, 0L, 0L, 1L));
+        when(transactionRepository.findPage(eq(USER_ID), eq(OCT_1), eq(NOV_1), isNull(), isNull(),
+                eq(TransactionStatus.NEEDS_REVIEW), any()))
+                .thenReturn(new SliceImpl<>(List.of(review), PageRequest.of(0, 30), false));
+        when(transactionRepository.sumByDay(any(), any(), any(), any(), any(), eq(TransactionStatus.NEEDS_REVIEW)))
+                .thenReturn(List.of());
+
+        TransactionListResponse response = service.getTransactions(USER_ID, OCTOBER, null, null,
+                TransactionListFilter.NEEDS_REVIEW, 0, 30);
+
+        assertThat(response.days()).hasSize(1);
+        assertThat(response.days().getFirst().dayTotal()).isZero();
+    }
+
+    @Test
+    @DisplayName("거래가 없으면 날짜별 합계를 조회하지 않는다")
+    void emptyPage() {
+        when(transactionRepository.sumTotals(any(), any(), any(), any(), any()))
+                .thenReturn(new TransactionTotals(0L, 0L, 0L, 0L));
+        when(transactionRepository.findPage(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 30), false));
+
+        TransactionListResponse response = service.getTransactions(USER_ID, OCTOBER, null, null,
+                TransactionListFilter.ALL, 0, 30);
+
+        assertThat(response.days()).isEmpty();
+        assertThat(response.hasNext()).isFalse();
+        verify(transactionRepository, never()).sumByDay(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("계좌로 조회하면 요약에 계좌 정보를 넣는다")
+    void byAccount() {
+        LinkedAccount bank = LinkedAccount.builder().user(user(USER_ID)).institutionCode("0004")
+                .type(LinkedAccountType.BANK).connectedId("cid-1").accountNumberLast4("5678").build();
+        ReflectionTestUtils.setField(bank, "id", 3L);
+        when(linkedAccountRepository.findById(3L)).thenReturn(Optional.of(bank));
+        when(transactionRepository.sumTotals(USER_ID, OCT_1, NOV_1, 3L, null))
+                .thenReturn(new TransactionTotals(10_000L, 0L, 0L, 0L));
+        when(transactionRepository.findPage(any(), any(), any(), eq(3L), any(), any(), any()))
+                .thenReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 30), false));
+
+        TransactionListResponse response = service.getTransactions(USER_ID, OCTOBER, 3L, null,
+                TransactionListFilter.ALL, 0, 30);
+
+        assertThat(response.summary().account()).isEqualTo(new TransactionResponse.AccountItem(3L, "국민은행", "5678"));
+        assertThat(response.summary().spent()).isEqualTo(10_000L);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 계좌로 조회하면 403")
+    void byOthersAccount() {
+        LinkedAccount others = LinkedAccount.builder().user(user(2L)).institutionCode("0004")
+                .type(LinkedAccountType.BANK).connectedId("cid-2").build();
+        when(linkedAccountRepository.findById(3L)).thenReturn(Optional.of(others));
+
+        assertThatThrownBy(() -> service.getTransactions(USER_ID, OCTOBER, 3L, null, TransactionListFilter.ALL, 0, 30))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.ACCOUNT_FORBIDDEN);
+        verify(transactionRepository, never()).findPage(any(), any(), any(), any(), any(), any(), any());
     }
 }
