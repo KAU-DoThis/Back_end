@@ -22,7 +22,7 @@ import java.util.List;
 
 @Tag(name = "Account", description = "계좌·카드 연동 (F-19)")
 @RestController
-@RequestMapping("/accounts")
+@RequestMapping("/linked-accounts")
 @RequiredArgsConstructor
 public class LinkedAccountController {
 
