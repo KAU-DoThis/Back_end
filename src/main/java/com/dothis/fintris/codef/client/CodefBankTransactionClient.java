@@ -64,11 +64,10 @@ public class CodefBankTransactionClient {
             return;
         }
         boolean isOut = out > 0;
-        String balance = text(item, "resAfterTranBalance");
         transactions.add(new BankTransaction(occurredAt,
                 isOut ? TransactionDirection.OUT : TransactionDirection.IN,
                 isOut ? out : in,
-                balance == null ? null : parseWon(balance),
+                parseBalance(text(item, "resAfterTranBalance")),
                 text(item, "resAccountDesc1"), text(item, "resAccountDesc2"),
                 text(item, "resAccountDesc3"), text(item, "resAccountDesc4")));
     }
