@@ -2,6 +2,7 @@ package com.dothis.fintris.transaction.controller;
 
 import com.dothis.fintris.global.api.ApiResponse;
 import com.dothis.fintris.global.api.code.GeneralSuccessCode;
+import com.dothis.fintris.transaction.dto.TransactionCategoryRequest;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
 import com.dothis.fintris.transaction.dto.TransactionListResponse;
 import com.dothis.fintris.transaction.dto.TransactionResponse;
@@ -9,11 +10,14 @@ import com.dothis.fintris.transaction.service.TransactionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -50,5 +54,14 @@ public class TransactionController {
     public ApiResponse<TransactionResponse> getTransaction(@AuthenticationPrincipal Long userId,
                                                            @PathVariable Long transactionId) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, transactionService.getTransaction(userId, transactionId));
+    }
+
+    @Operation(summary = "거래 카테고리 수정", description = "사용자가 고친 분류는 자동 분류보다 우선한다(classifiedBy=USER)")
+    @PatchMapping("/{transactionId}/category")
+    public ApiResponse<TransactionResponse> changeCategory(@AuthenticationPrincipal Long userId,
+                                                           @PathVariable Long transactionId,
+                                                           @RequestBody @Valid TransactionCategoryRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK,
+                transactionService.changeCategory(userId, transactionId, request.categoryId()));
     }
 }

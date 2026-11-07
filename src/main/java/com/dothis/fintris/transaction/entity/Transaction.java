@@ -95,6 +95,12 @@ public class Transaction extends BaseEntity {
     @Column(unique = true)
     private String externalKey;
 
+    // 사용자가 고친 분류는 자동 분류보다 우선한다 (F-20)
+    public void changeCategoryByUser(Category category) {
+        this.category = category;
+        this.classifiedBy = ClassifiedBy.USER;
+    }
+
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);
     }

@@ -3,6 +3,8 @@ package com.dothis.fintris.transaction.service;
 import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
+import com.dothis.fintris.category.entity.Category;
+import com.dothis.fintris.category.repository.CategoryRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
@@ -44,14 +46,30 @@ public class TransactionService {
 
     private final TransactionRepository transactionRepository;
     private final LinkedAccountRepository linkedAccountRepository;
+    private final CategoryRepository categoryRepository;
 
     public TransactionResponse getTransaction(Long userId, Long transactionId) {
+        return TransactionResponse.from(ownedTransaction(userId, transactionId));
+    }
+
+    // TODO: 블록 반영(F-21)이 붙으면 바뀐 카테고리의 블록 연결에 맞춰 반영 블록과 잔액을 다시 계산한다
+    // TODO: 개인 사전(수정한 가맹점 → 카테고리) 저장 위치가 정해지면 함께 저장한다
+    @Transactional
+    public TransactionResponse changeCategory(Long userId, Long transactionId, Long categoryId) {
+        Transaction transaction = ownedTransaction(userId, transactionId);
+        Category category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> GeneralException.of(TransactionErrorCode.TRANSACTION_CATEGORY_NOT_FOUND));
+        transaction.changeCategoryByUser(category);
+        return TransactionResponse.from(transaction);
+    }
+
+    private Transaction ownedTransaction(Long userId, Long transactionId) {
         Transaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> GeneralException.of(TransactionErrorCode.TRANSACTION_NOT_FOUND));
         if (!transaction.isOwnedBy(userId)) {
             throw GeneralException.of(TransactionErrorCode.TRANSACTION_FORBIDDEN);
         }
-        return TransactionResponse.from(transaction);
+        return transaction;
     }
 
     // 요약·건수는 계좌·블록 조건만 따르고, filter(확인 필요·임시)는 목록과 날짜별 합계에만 건다

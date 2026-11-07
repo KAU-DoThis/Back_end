@@ -6,6 +6,7 @@ import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.category.entity.CategoryType;
+import com.dothis.fintris.category.repository.CategoryRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
@@ -55,6 +56,7 @@ class TransactionServiceTest {
 
     @Mock TransactionRepository transactionRepository;
     @Mock LinkedAccountRepository linkedAccountRepository;
+    @Mock CategoryRepository categoryRepository;
     @InjectMocks TransactionService service;
 
     private User user(Long id) {
@@ -262,5 +264,46 @@ class TransactionServiceTest {
                 .extracting(e -> ((GeneralException) e).getCode())
                 .isEqualTo(AccountErrorCode.ACCOUNT_FORBIDDEN);
         verify(transactionRepository, never()).findPage(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("카테고리를 고치면 사용자 분류로 바뀌고 불확실 표시가 사라진다")
+    void changeCategory() {
+        given(transaction(user(USER_ID)).category(living())
+                .classifiedBy(ClassifiedBy.AUTO).confidence(new BigDecimal("0.400")).build());
+        Category cafe = Category.builder().code("CAFE").name("카페/간식")
+                .categoryType(CategoryType.EXPENSE).displayOrder(3).build();
+        ReflectionTestUtils.setField(cafe, "id", 3L);
+        when(categoryRepository.findById(3L)).thenReturn(Optional.of(cafe));
+
+        TransactionResponse response = service.changeCategory(USER_ID, TRANSACTION_ID, 3L);
+
+        assertThat(response.category()).isEqualTo(new TransactionResponse.CategoryItem(3L, "CAFE", "카페/간식"));
+        assertThat(response.classifiedBy()).isEqualTo(ClassifiedBy.USER);
+        assertThat(response.categoryUncertain()).isFalse();
+    }
+
+    @Test
+    @DisplayName("없는 카테고리로 고치면 404")
+    void changeCategoryNotFound() {
+        given(transaction(user(USER_ID)).build());
+        when(categoryRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.changeCategory(USER_ID, TRANSACTION_ID, 99L))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(TransactionErrorCode.TRANSACTION_CATEGORY_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 거래는 카테고리를 고칠 수 없다")
+    void changeCategoryForbidden() {
+        given(transaction(user(2L)).build());
+
+        assertThatThrownBy(() -> service.changeCategory(USER_ID, TRANSACTION_ID, 3L))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(TransactionErrorCode.TRANSACTION_FORBIDDEN);
+        verify(categoryRepository, never()).findById(any());
     }
 }

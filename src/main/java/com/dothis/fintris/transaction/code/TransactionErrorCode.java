@@ -9,7 +9,8 @@ import org.springframework.http.HttpStatus;
 @AllArgsConstructor
 public enum TransactionErrorCode implements BaseErrorCode {
     TRANSACTION_NOT_FOUND(HttpStatus.NOT_FOUND, "TRANSACTION_NOT_FOUND", "거래를 찾을 수 없습니다."),
-    TRANSACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "TRANSACTION_FORBIDDEN", "다른 사용자의 거래에는 접근할 수 없습니다.");
+    TRANSACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "TRANSACTION_FORBIDDEN", "다른 사용자의 거래에는 접근할 수 없습니다."),
+    TRANSACTION_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "TRANSACTION_CATEGORY_NOT_FOUND", "존재하지 않는 카테고리입니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
