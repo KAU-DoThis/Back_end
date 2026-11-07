@@ -4,7 +4,6 @@ import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.codef.client.CodefAccountClient.CodefAccountResult;
 import com.dothis.fintris.codef.client.CodefApiClient.CodefResponse;
 import com.dothis.fintris.codef.client.CodefApiClient.CodefResult;
-import com.dothis.fintris.global.crypto.RsaEncryptor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,7 +30,6 @@ class CodefAccountClientTest {
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     @Mock CodefApiClient codefApiClient;
-    @Mock RsaEncryptor rsaEncryptor;
     @InjectMocks CodefAccountClient client;
 
     private CodefResponse response(String code, String message, String dataJson) {
@@ -40,7 +38,6 @@ class CodefAccountClientTest {
     }
 
     private void givenResponse(CodefResponse response) {
-        when(rsaEncryptor.encrypt("pw1234")).thenReturn("ENCRYPTED");
         when(codefApiClient.post(anyString(), any())).thenReturn(response);
     }
 
@@ -61,7 +58,7 @@ class CodefAccountClientTest {
     void createsWhenNoConnectedId() {
         givenResponse(response("CF-00000", "성공", "{\"connectedId\": \"cid-1\"}"));
 
-        CodefAccountResult result = client.register(null, "0004", LinkedAccountType.BANK, "codef", "pw1234", "980225");
+        CodefAccountResult result = client.register(null, "0004", LinkedAccountType.BANK, "codef", "ENCRYPTED", "980225");
 
         Map<String, Object> body = capturedBody(CREATE_PATH);
         assertThat(body).doesNotContainKey("connectedId");
@@ -77,15 +74,14 @@ class CodefAccountClientTest {
     }
 
     @Test
-    @DisplayName("비밀번호는 RSA로 암호화된 값만 보내고 평문은 어디에도 싣지 않는다")
-    void sendsOnlyEncryptedPassword() {
+    @DisplayName("받은 암호화 비밀번호를 그대로 보낸다")
+    void sendsGivenEncryptedPasswordAsIs() {
         givenResponse(response("CF-00000", "성공", "{\"connectedId\": \"cid-1\"}"));
 
-        client.register(null, "0004", LinkedAccountType.BANK, "codef", "pw1234", "980225");
+        client.register(null, "0004", LinkedAccountType.BANK, "codef", "ENCRYPTED", "980225");
 
         Map<String, Object> body = capturedBody(CREATE_PATH);
         assertThat(firstAccount(body)).containsEntry("password", "ENCRYPTED");
-        assertThat(body.toString()).doesNotContain("pw1234");
     }
 
     @Test
@@ -93,7 +89,7 @@ class CodefAccountClientTest {
     void addsWhenConnectedIdExists() {
         givenResponse(response("CF-00000", "성공", "{\"connectedId\": \"cid-1\"}"));
 
-        client.register("cid-1", "0088", LinkedAccountType.BANK, "codef", "pw1234", "980225");
+        client.register("cid-1", "0088", LinkedAccountType.BANK, "codef", "ENCRYPTED", "980225");
 
         Map<String, Object> body = capturedBody(ADD_PATH);
         assertThat(body).containsEntry("connectedId", "cid-1");
@@ -105,7 +101,7 @@ class CodefAccountClientTest {
     void addFallsBackToRequestedConnectedId() {
         givenResponse(response("CF-00000", "성공", "{\"successList\": [{\"code\": \"CF-00000\"}]}"));
 
-        CodefAccountResult result = client.register("cid-1", "0088", LinkedAccountType.BANK, "codef", "pw1234", "980225");
+        CodefAccountResult result = client.register("cid-1", "0088", LinkedAccountType.BANK, "codef", "ENCRYPTED", "980225");
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.connectedId()).isEqualTo("cid-1");
@@ -116,7 +112,7 @@ class CodefAccountClientTest {
     void cardUsesCardBusinessType() {
         givenResponse(response("CF-00000", "성공", "{\"connectedId\": \"cid-1\"}"));
 
-        client.register(null, "0309", LinkedAccountType.CARD, "codef", "pw1234", "980225");
+        client.register(null, "0309", LinkedAccountType.CARD, "codef", "ENCRYPTED", "980225");
 
         assertThat(firstAccount(capturedBody(CREATE_PATH))).containsEntry("businessType", "CD");
     }
@@ -128,7 +124,7 @@ class CodefAccountClientTest {
                 {"errorList": [{"code": "CF-12801", "message": "비밀번호가 일치하지 않습니다."}]}
                 """));
 
-        CodefAccountResult result = client.register(null, "0004", LinkedAccountType.BANK, "codef", "pw1234", "980225");
+        CodefAccountResult result = client.register(null, "0004", LinkedAccountType.BANK, "codef", "ENCRYPTED", "980225");
 
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.failureCode()).isEqualTo("CF-12801");
@@ -140,7 +136,7 @@ class CodefAccountClientTest {
     void fallsBackToResultCodeWhenNoErrorList() {
         givenResponse(response("CF-03002", "추가 인증이 필요합니다.", null));
 
-        CodefAccountResult result = client.register(null, "0027", LinkedAccountType.BANK, "codef", "pw1234", "980225");
+        CodefAccountResult result = client.register(null, "0027", LinkedAccountType.BANK, "codef", "ENCRYPTED", "980225");
 
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.failureCode()).isEqualTo("CF-03002");
@@ -166,7 +162,7 @@ class CodefAccountClientTest {
     void successWithoutAnyConnectedIdIsFailure() {
         givenResponse(response("CF-00000", "성공", "{}"));
 
-        CodefAccountResult result = client.register(null, "0004", LinkedAccountType.BANK, "codef", "pw1234", "980225");
+        CodefAccountResult result = client.register(null, "0004", LinkedAccountType.BANK, "codef", "ENCRYPTED", "980225");
 
         assertThat(result.isSuccess()).isFalse();
     }

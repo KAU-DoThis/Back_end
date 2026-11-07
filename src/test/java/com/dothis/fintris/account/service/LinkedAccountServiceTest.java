@@ -2,9 +2,13 @@ package com.dothis.fintris.account.service;
 
 import com.dothis.fintris.account.code.AccountErrorCode;
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
+import com.dothis.fintris.account.dto.LinkedAccountLinkResponse;
+import com.dothis.fintris.account.dto.LinkedAccountListResponse;
 import com.dothis.fintris.account.dto.LinkedAccountResponse;
+import com.dothis.fintris.account.entity.LinkLoginType;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.LinkedAccountType;
+import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.account.exception.AccountLinkRejectedException;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.codef.client.CodefAccountClient;
@@ -17,7 +21,10 @@ import com.dothis.fintris.codef.client.CodefCardClient.Card;
 import com.dothis.fintris.codef.client.CodefCardClient.CardsResult;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.entity.AuthProvider;
+import com.dothis.fintris.user.entity.Consent;
+import com.dothis.fintris.user.entity.ConsentItem;
 import com.dothis.fintris.user.entity.User;
+import com.dothis.fintris.user.repository.ConsentRepository;
 import com.dothis.fintris.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -52,6 +59,7 @@ class LinkedAccountServiceTest {
 
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock UserRepository userRepository;
+    @Mock ConsentRepository consentRepository;
     @Mock CodefAccountClient codefAccountClient;
     @Mock CodefBankAccountClient codefBankAccountClient;
     @Mock CodefCardClient codefCardClient;
@@ -59,14 +67,28 @@ class LinkedAccountServiceTest {
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
 
-    private LinkedAccountCreateRequest request(String institutionCode) {
-        return new LinkedAccountCreateRequest(institutionCode, "codef", "pw1234", "980225");
+    private LinkedAccountCreateRequest.Item item(String institutionCode) {
+        LinkedAccountType type = SupportedInstitution.findByCode(institutionCode)
+                .map(SupportedInstitution::getType).orElse(LinkedAccountType.BANK);
+        return new LinkedAccountCreateRequest.Item(institutionCode, type, LinkLoginType.ID_PASSWORD,
+                "codef", "ENC", "980225");
+    }
+
+    private LinkedAccountCreateRequest request(String... institutionCodes) {
+        return new LinkedAccountCreateRequest(
+                java.util.Arrays.stream(institutionCodes).map(this::item).toList());
     }
 
     private void givenUserAndExisting(List<LinkedAccount> existing) {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        givenCodefConsent(true);
         when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
                 .thenReturn(existing);
+    }
+
+    private void givenCodefConsent(boolean agreed) {
+        when(consentRepository.findFirstByUser_IdAndItemOrderByIdDesc(USER_ID, ConsentItem.CODEF)).thenReturn(
+                Optional.of(Consent.builder().user(user).item(ConsentItem.CODEF).agreed(agreed).docVersion("2026-10-01").build()));
     }
 
     private LinkedAccount existingAccount(String institutionCode, String connectedId) {
@@ -83,7 +105,7 @@ class LinkedAccountServiceTest {
     void firstLinkCreatesConnectedIdAndSavesEachAccount() {
         givenUserAndExisting(List.of());
         when(codefAccountClient.register(isNull(), eq(KOOKMIN), eq(LinkedAccountType.BANK),
-                eq("codef"), eq("pw1234"), eq("980225")))
+                eq("codef"), eq("ENC"), eq("980225")))
                 .thenReturn(new CodefAccountResult("cid-1", null, null));
         when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
                 new BankAccountsResult(List.of(
@@ -91,7 +113,7 @@ class LinkedAccountServiceTest {
                         new BankAccount("1002440005678", "생활비통장", null)), null, null));
         givenSavedEcho();
 
-        List<LinkedAccountResponse> responses = service.link(USER_ID, request(KOOKMIN));
+        List<LinkedAccountResponse> responses = service.link(USER_ID, request(KOOKMIN)).linkedAccounts();
 
         ArgumentCaptor<List<LinkedAccount>> captor = ArgumentCaptor.captor();
         verify(linkedAccountRepository).saveAll(captor.capture());
@@ -130,6 +152,8 @@ class LinkedAccountServiceTest {
     @Test
     @DisplayName("지원하지 않는 기관코드는 CODEF를 호출하지 않고 거절한다")
     void rejectsUnsupportedInstitution() {
+        givenUserAndExisting(List.of());
+
         assertThatThrownBy(() -> service.link(USER_ID, request("9999")))
                 .isInstanceOf(GeneralException.class)
                 .extracting(e -> ((GeneralException) e).getCode())
@@ -158,7 +182,7 @@ class LinkedAccountServiceTest {
 
         assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
                 .isInstanceOfSatisfying(AccountLinkRejectedException.class, e -> {
-                    assertThat(e.getCode()).isEqualTo(AccountErrorCode.ACCOUNT_LINK_REJECTED);
+                    assertThat(e.getCode()).isEqualTo(AccountErrorCode.LINK_INSTITUTION_AUTH_FAILED);
                     assertThat(e.getInstitutionCode()).isEqualTo("CF-12801");
                     assertThat(e.getInstitutionMessage()).isEqualTo("비밀번호가 일치하지 않습니다.");
                 });
@@ -222,7 +246,7 @@ class LinkedAccountServiceTest {
                         new Card("6253********0456", "할인카드", "신용/본인")), null, null));
         givenSavedEcho();
 
-        List<LinkedAccountResponse> responses = service.link(USER_ID, request(SHINHAN_CARD));
+        List<LinkedAccountResponse> responses = service.link(USER_ID, request(SHINHAN_CARD)).linkedAccounts();
 
         ArgumentCaptor<List<LinkedAccount>> captor = ArgumentCaptor.captor();
         verify(linkedAccountRepository).saveAll(captor.capture());
@@ -348,6 +372,119 @@ class LinkedAccountServiceTest {
         verify(codefAccountClient).unregister("cid-1", KOOKMIN, LinkedAccountType.BANK);
     }
 
+    @Test
+    @DisplayName("여러 기관을 보내면 첫 기관이 발급한 connectedId에 다음 기관을 추가한다")
+    void linksSeveralInstitutionsWithOneConnectedId() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(isNull(), eq(KOOKMIN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefAccountClient.register(eq("cid-1"), eq(SHINHAN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", SHINHAN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("110123456789", "쏠통장", 2_000L)), null, null));
+        givenSavedEcho();
+
+        LinkedAccountLinkResponse response = service.link(USER_ID, request(KOOKMIN, SHINHAN));
+
+        assertThat(response.linkedAccounts()).extracting(LinkedAccountResponse::institutionName)
+                .containsExactly("국민은행", "신한은행");
+        assertThat(response.failed()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("일부 기관만 실패하면 성공한 기관은 저장하고 실패는 failed에 담는다")
+    void partialFailureGoesToFailedList() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(isNull(), eq(KOOKMIN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefAccountClient.register(eq("cid-1"), eq(SHINHAN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult(null, "CF-12801", "비밀번호가 일치하지 않습니다."));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        givenSavedEcho();
+
+        LinkedAccountLinkResponse response = service.link(USER_ID, request(KOOKMIN, SHINHAN));
+
+        assertThat(response.linkedAccounts()).hasSize(1);
+        assertThat(response.failed()).singleElement().satisfies(failure -> {
+            assertThat(failure.institutionCode()).isEqualTo(SHINHAN);
+            assertThat(failure.code()).isEqualTo("LINK_INSTITUTION_AUTH_FAILED");
+            assertThat(failure.message()).isEqualTo("비밀번호가 일치하지 않습니다.");
+        });
+    }
+
+    @Test
+    @DisplayName("한 곳도 연동하지 못하면 첫 실패 사유로 오류를 던진다")
+    void throwsFirstFailureWhenNothingLinked() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(any(), anyString(), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult(null, "CF-12801", "비밀번호가 일치하지 않습니다."));
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN, SHINHAN)))
+                .isInstanceOfSatisfying(AccountLinkRejectedException.class,
+                        e -> assertThat(e.getInstitutionMessage()).isEqualTo("비밀번호가 일치하지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("같은 기관을 한 요청에 두 번 보내면 두 번째는 실패로 담는다")
+    void duplicateInstitutionInRequestFails() {
+        givenUserAndExisting(List.of());
+        when(codefAccountClient.register(isNull(), eq(KOOKMIN), any(), anyString(), anyString(), anyString()))
+                .thenReturn(new CodefAccountResult("cid-1", null, null));
+        when(codefBankAccountClient.fetchDemandDepositAccounts("cid-1", KOOKMIN)).thenReturn(
+                new BankAccountsResult(List.of(new BankAccount("1002440001234", "입출금통장", 1_000L)), null, null));
+        givenSavedEcho();
+
+        LinkedAccountLinkResponse response = service.link(USER_ID, request(KOOKMIN, KOOKMIN));
+
+        assertThat(response.linkedAccounts()).hasSize(1);
+        assertThat(response.failed()).extracting(LinkedAccountLinkResponse.FailedInstitution::code)
+                .containsExactly("ACCOUNT_ALREADY_LINKED");
+    }
+
+    @Test
+    @DisplayName("기관 종류(type)가 기관코드와 맞지 않으면 지원하지 않는 기관으로 본다")
+    void typeMismatchIsUnsupported() {
+        givenUserAndExisting(List.of());
+        LinkedAccountCreateRequest.Item mismatched = new LinkedAccountCreateRequest.Item(
+                KOOKMIN, LinkedAccountType.CARD, LinkLoginType.ID_PASSWORD, "codef", "ENC", "980225");
+
+        assertThatThrownBy(() -> service.link(USER_ID, new LinkedAccountCreateRequest(List.of(mismatched))))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.ACCOUNT_INSTITUTION_NOT_SUPPORTED);
+        verifyNoInteractions(codefAccountClient);
+    }
+
+    @Test
+    @DisplayName("CODEF 동의를 철회한 상태면 CODEF를 호출하지 않고 거절한다")
+    void rejectsWhenCodefConsentWithdrawn() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        givenCodefConsent(false);
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.LINK_CONSENT_REQUIRED);
+        verifyNoInteractions(codefAccountClient);
+    }
+
+    @Test
+    @DisplayName("CODEF 동의 기록이 없으면 거절한다")
+    void rejectsWhenNoCodefConsent() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(consentRepository.findFirstByUser_IdAndItemOrderByIdDesc(USER_ID, ConsentItem.CODEF))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.link(USER_ID, request(KOOKMIN)))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(AccountErrorCode.LINK_CONSENT_REQUIRED);
+        verifyNoInteractions(codefAccountClient);
+    }
+
     private LinkedAccount ownedAccount(Long id, String institutionCode) {
         User owner = User.builder().email("o@example.com").authProvider(AuthProvider.EMAIL).build();
         ReflectionTestUtils.setField(owner, "id", USER_ID);
@@ -426,9 +563,45 @@ class LinkedAccountServiceTest {
         when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
                 .thenReturn(List.of(account));
 
-        List<LinkedAccountResponse> responses = service.getLinkedAccounts(USER_ID);
+        LinkedAccountListResponse response = service.getLinkedAccounts(USER_ID);
 
-        assertThat(responses).hasSize(1);
-        assertThat(responses.get(0).toString()).doesNotContain("secret-cid").doesNotContain("1002440001234");
+        assertThat(response.linkedAccounts()).hasSize(1);
+        assertThat(response.toString()).doesNotContain("secret-cid").doesNotContain("1002440001234");
+    }
+
+    @Test
+    @DisplayName("목록은 계산에 포함되는 계좌의 잔액 합과 가장 오래된 동기화 시각을 함께 준다")
+    void listHasTotalBalanceAndOldestSyncTime() {
+        LinkedAccount bank = LinkedAccount.builder().user(user).institutionCode(KOOKMIN)
+                .type(LinkedAccountType.BANK).connectedId("cid").balance(2_000_000L)
+                .lastSyncedAt(java.time.LocalDateTime.of(2026, 10, 14, 9, 0)).build();
+        LinkedAccount other = LinkedAccount.builder().user(user).institutionCode(SHINHAN)
+                .type(LinkedAccountType.BANK).connectedId("cid").balance(500_000L)
+                .lastSyncedAt(java.time.LocalDateTime.of(2026, 10, 13, 6, 0)).build();
+        LinkedAccount excluded = LinkedAccount.builder().user(user).institutionCode(SHINHAN)
+                .type(LinkedAccountType.BANK).connectedId("cid").balance(9_000_000L).isActive(false).build();
+        LinkedAccount card = LinkedAccount.builder().user(user).institutionCode(SHINHAN_CARD)
+                .type(LinkedAccountType.CARD).connectedId("cid").isActive(false).build();
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
+                .thenReturn(List.of(bank, other, excluded, card));
+
+        LinkedAccountListResponse response = service.getLinkedAccounts(USER_ID);
+
+        assertThat(response.totalBalance()).isEqualTo(2_500_000L);
+        assertThat(response.lastSyncedAt()).isEqualTo(java.time.LocalDateTime.of(2026, 10, 13, 6, 0));
+        assertThat(response.linkedAccounts()).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("연동한 계좌가 없으면 잔액 합은 0이고 동기화 시각은 null이다")
+    void emptyListHasZeroTotalAndNoSyncTime() {
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
+                .thenReturn(List.of());
+
+        LinkedAccountListResponse response = service.getLinkedAccounts(USER_ID);
+
+        assertThat(response.totalBalance()).isZero();
+        assertThat(response.lastSyncedAt()).isNull();
+        assertThat(response.linkedAccounts()).isEmpty();
     }
 }
