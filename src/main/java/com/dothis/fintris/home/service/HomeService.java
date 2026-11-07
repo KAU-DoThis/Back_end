@@ -1,11 +1,11 @@
 package com.dothis.fintris.home.service;
 
+import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.entity.LinkedAccountType;
+import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.service.BlockService;
-import com.dothis.fintris.connection.entity.AccountType;
-import com.dothis.fintris.connection.entity.LinkedAccount;
-import com.dothis.fintris.connection.repository.LinkedAccountRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.home.dto.HomeResponse;
 import com.dothis.fintris.user.code.UserErrorCode;
@@ -41,7 +41,7 @@ public class HomeService {
 
         // 카드는 잔액이 없으므로 총 자산·미배분 계산은 은행 계좌만 쓴다
         List<LinkedAccount> accounts = linkedAccountRepository
-                .findAllByUser_IdAndTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(userId, AccountType.BANK);
+                .findAllByUser_IdAndTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(userId, LinkedAccountType.BANK);
 
         long totalBalance = accounts.stream()
                 .map(LinkedAccount::getBalance)

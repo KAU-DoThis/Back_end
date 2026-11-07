@@ -1,7 +1,7 @@
 package com.dothis.fintris.home.dto;
 
+import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.block.dto.BlockResponse;
-import com.dothis.fintris.connection.entity.LinkedAccount;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
