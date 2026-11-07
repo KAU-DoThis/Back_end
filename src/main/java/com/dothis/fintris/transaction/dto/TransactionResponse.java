@@ -73,7 +73,7 @@ public record TransactionResponse(
             @Schema(example = "신한카드") String institutionName,
             @Schema(description = "계좌·카드 번호 뒤 4자리", example = "1234") String last4
     ) {
-        static AccountItem from(LinkedAccount account) {
+        public static AccountItem from(LinkedAccount account) {
             if (account == null) {
                 return null;
             }
