@@ -1,6 +1,7 @@
 package com.dothis.fintris.home.dto;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.block.dto.BlockResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -70,18 +71,20 @@ public record HomeResponse(
     public record AccountItem(
             @Schema(example = "3") Long linkedAccountId,
             @Schema(description = "금융기관 코드", example = "0004") String institutionCode,
-            @Schema(description = "금융기관 이름. 기관 목록(F-19)이 붙기 전까지 null", example = "KB국민") String institutionName,
+            @Schema(description = "금융기관 이름. 지원 기관 목록에 없으면 null", example = "국민은행") String institutionName,
             @Schema(example = "입출금") String accountName,
             @Schema(description = "계좌번호 뒤 4자리", example = "1234") String last4,
             @Schema(description = "잔액(원)", example = "2687000") Long balance,
             @Schema(description = "이번 달 이 계좌에서 쓴 돈(원)", example = "115900") long monthSpent
     ) {
-        // TODO: institutionName은 기관 목록(F-19), monthSpent는 거래(F-21)가 붙으면 채운다
+        // TODO: monthSpent는 거래(F-21)가 붙으면 채운다
         public static AccountItem from(LinkedAccount account) {
             return new AccountItem(
                     account.getId(),
                     account.getInstitutionCode(),
-                    null,
+                    SupportedInstitution.findByCode(account.getInstitutionCode())
+                            .map(SupportedInstitution::getDisplayName)
+                            .orElse(null),
                     account.getAccountName(),
                     account.getAccountNumberLast4(),
                     account.getBalance(),

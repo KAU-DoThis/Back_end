@@ -17,9 +17,6 @@ public interface LinkedAccountRepository extends JpaRepository<LinkedAccount, Lo
     // 주인 확인(403)은 서비스에서 하므로 user 조건 없이 찾는다
     Optional<LinkedAccount> findByIdAndDeletedAtIsNull(Long linkedAccountId);
 
-    // 미배분 잔액 계산에 포함되는 계좌 (is_active = 1, 삭제 안 됨)
-    List<LinkedAccount> findAllByUser_IdAndTypeAndIsActiveTrueAndDeletedAtIsNullOrderByIdAsc(Long userId, LinkedAccountType type);
-
     // 정기 동기화 대상: 해제되지 않은 해당 종류 계좌가 하나라도 있는 사용자
     @Query("select distinct a.user.id from LinkedAccount a where a.type = :type and a.deletedAt is null")
     List<Long> findUserIdsWithActive(@Param("type") LinkedAccountType type);
