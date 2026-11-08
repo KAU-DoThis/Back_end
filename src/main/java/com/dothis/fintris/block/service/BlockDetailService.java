@@ -12,6 +12,7 @@ import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.repository.BlockTransferRepository;
 import com.dothis.fintris.block.simulation.ImpactCalculator;
 import com.dothis.fintris.global.exception.GeneralException;
+import com.dothis.fintris.home.service.DailyGuideCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
@@ -25,6 +26,7 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.TreeMap;
 
 // 블록 상세 화면 (앱 시안 02, 02-1, 02-2 / API 명세 v4 6장)
@@ -48,7 +50,8 @@ public class BlockDetailService {
         LocalDate today = LocalDate.now(KST);
         return switch (block.getType()) {
             case GOAL -> goal(block, response, today);
-            case FIXED, SPENDING -> new BlockDetailResponse(response, null, List.of(), ruleText(block), null);
+            case FIXED -> fixed(block, response, today);
+            case SPENDING -> spending(block, response, today);
         };
     }
 
@@ -93,6 +96,45 @@ public class BlockDetailService {
                 inflows,
                 resolution);
         return new BlockDetailResponse(response, null, actions, ruleText(block), detail);
+    }
+
+    // 02-2: 확보율, 다음 납부일, 모자란 돈, 납부 확인 조건, 알림
+    private BlockDetailResponse fixed(Block block, BlockResponse response, LocalDate today) {
+        BlockRule rule = block.getRule();
+        Long payAmount = rule != null ? rule.payAmount() : null;
+        Integer payDay = rule != null ? rule.payDay() : null;
+        long shortage = payAmount != null ? Math.max(0, payAmount - block.getBalance()) : 0;
+
+        // 모자라면 "다른 블록에서 채우기" 버튼 (03-2 이동 시트로)
+        List<String> actions = shortage > 0 ? List.of("FILL_FROM_OTHER") : List.of();
+
+        BlockDetailResponse.FixedDetail detail = new BlockDetailResponse.FixedDetail(
+                Objects.requireNonNullElse(BlockCalculator.fillRate(block.getBalance(), payAmount), 0),
+                payDay != null ? BlockCalculator.nextPayDate(today, payDay) : null,
+                payAmount != null ? payAmount : 0,
+                shortage,
+                rule != null ? rule.matchCondition() : null,
+                rule != null ? rule.alerts() : null,
+                null,
+                List.of());
+        return new BlockDetailResponse(response, null, actions, ruleText(block), detail);
+    }
+
+    // 02: 기간, 남은 비율·일수, 오늘 가능·씀·남음 (홈 dailyGuide와 같은 계산)
+    private BlockDetailResponse spending(Block block, BlockResponse response, LocalDate today) {
+        Long monthlyAmount = block.getRule() != null ? block.getRule().monthlyAmount() : null;
+        long days = block.getDueDate() != null ? DailyGuideCalculator.remainingDays(today, block.getDueDate()) : 0;
+        long available = DailyGuideCalculator.todayAvailable(block.getBalance(), days);
+        long spent = 0; // TODO: 거래 반영(F-21)이 붙으면 오늘 쓴 돈을 채운다
+
+        BlockDetailResponse.SpendingDetail detail = new BlockDetailResponse.SpendingDetail(
+                new BlockDetailResponse.Period(block.getStartDate(), block.getDueDate()),
+                BlockCalculator.fillRate(block.getBalance(), monthlyAmount),
+                days,
+                new BlockDetailResponse.Today(available, spent, available - spent),
+                null,
+                List.of());
+        return new BlockDetailResponse(response, null, List.of(), ruleText(block), detail);
     }
 
     private String paceLabel(Long delay) {
