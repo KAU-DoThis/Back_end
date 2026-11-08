@@ -1,8 +1,10 @@
 package com.dothis.fintris.block.entity;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 // API 명세 v4 블록 객체의 rule. 유형별로 필요한 값만 쓴다
@@ -27,7 +29,7 @@ public record BlockRule(
         @JsonAlias("pay_amount") Long payAmount,
 
         @Schema(description = "고정지출형 납부 확인 조건")
-        MatchCondition matchCondition,
+        @JsonAlias("match_condition") MatchCondition matchCondition,
 
         @Schema(description = "고정지출형 알림 설정")
         Alerts alerts
@@ -44,6 +46,27 @@ public record BlockRule(
             @Schema(description = "납부일 앞뒤 허용 일수", example = "3") Integer dayWindow,
             @Schema(description = "나가는 계좌", example = "3") Long linkedAccountId
     ) {
+        // 객체로 오면 각 키를 그대로 쓴다
+        @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
+        public MatchCondition(@JsonProperty("payee") String payee,
+                              @JsonProperty("amountMode") AmountMode amountMode,
+                              @JsonProperty("minAmount") Long minAmount,
+                              @JsonProperty("maxAmount") Long maxAmount,
+                              @JsonProperty("dayWindow") Integer dayWindow,
+                              @JsonProperty("linkedAccountId") Long linkedAccountId) {
+            this.payee = payee;
+            this.amountMode = amountMode;
+            this.minAmount = minAmount;
+            this.maxAmount = maxAmount;
+            this.dayWindow = dayWindow;
+            this.linkedAccountId = linkedAccountId;
+        }
+
+        // 예전 규칙은 match_condition이 "김OO" 같은 받는 분 문자열이었다. 버리지 않고 payee로 옮긴다
+        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+        public static MatchCondition fromLegacy(String payee) {
+            return new MatchCondition(payee, null, null, null, null, null);
+        }
     }
 
     public enum AmountMode {

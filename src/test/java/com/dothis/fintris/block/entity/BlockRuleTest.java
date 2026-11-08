@@ -21,8 +21,34 @@ class BlockRuleTest {
         assertThat(rule.payDay()).isEqualTo(25);
         assertThat(rule.payAmount()).isEqualTo(600_000L);
         assertThat(rule.monthlyTarget()).isEqualTo(150_000L);
-        // 예전 문자열 매칭 조건은 새 구조와 달라 버린다
-        assertThat(rule.matchCondition()).isNull();
+        // 예전 문자열 매칭 조건은 받는 분(payee)으로 옮긴다
+        assertThat(rule.matchCondition().payee()).isEqualTo("김OO");
+        assertThat(rule.matchCondition().amountMode()).isNull();
+    }
+
+    @Test
+    void 예전_규칙을_읽어_다시_저장해도_받는_분이_남는다() throws Exception {
+        BlockRule legacy = objectMapper.readValue("{\"pay_day\": 25, \"match_condition\": \"김OO\"}", BlockRule.class);
+
+        BlockRule merged = legacy.mergedWith(new BlockRule(null, null, null, 26, null, null, null));
+        BlockRule reloaded = objectMapper.readValue(objectMapper.writeValueAsString(merged), BlockRule.class);
+
+        assertThat(reloaded.payDay()).isEqualTo(26);
+        assertThat(reloaded.matchCondition().payee()).isEqualTo("김OO");
+    }
+
+    @Test
+    void 요청_본문은_Jackson_3에서도_객체와_예전_문자열을_모두_읽는다() {
+        tools.jackson.databind.json.JsonMapper mapper = tools.jackson.databind.json.JsonMapper.builder().build();
+
+        BlockRule fromObject = mapper.readValue(
+                "{\"payDay\": 25, \"matchCondition\": {\"payee\": \"김*수\", \"amountMode\": \"RANGE\", \"minAmount\": 540000}}",
+                BlockRule.class);
+        BlockRule fromLegacy = mapper.readValue("{\"match_condition\": \"김OO\"}", BlockRule.class);
+
+        assertThat(fromObject.matchCondition().amountMode()).isEqualTo(BlockRule.AmountMode.RANGE);
+        assertThat(fromObject.matchCondition().minAmount()).isEqualTo(540_000L);
+        assertThat(fromLegacy.matchCondition().payee()).isEqualTo("김OO");
     }
 
     @Test
