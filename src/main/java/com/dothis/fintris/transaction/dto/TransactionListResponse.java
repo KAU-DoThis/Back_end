@@ -21,7 +21,7 @@ public record TransactionListResponse(
             Period period,
             @Schema(description = "기간 내 출금 합계(소비 제외·취소 거래 제외)", example = "588000") long spent,
             @Schema(example = "1") long provisionalCount,
-            @Schema(description = "기간 내 입금 합계(소비 제외·취소 거래 제외)", example = "0") long income,
+            @Schema(description = "기간 내 입금 합계(취소·본인 계좌 이동 제외)", example = "0") long income,
             // TODO: 입금원 분석(v4 6-1장)이 붙으면 홈과 같은 값으로 채운다
             @Schema(description = "다음 입금 예정. 없으면 null") NextExpectedIncome nextExpectedIncome,
             @Schema(description = "linkedAccountId로 조회했을 때만 채운다") AccountItem account
@@ -55,7 +55,7 @@ public record TransactionListResponse(
 
     public record Day(
             @Schema(example = "2026-10-14") LocalDate date,
-            @Schema(description = "그날 입금 − 출금(소비 제외·취소 거래 제외)", example = "-15300") long dayTotal,
+            @Schema(description = "그날 쓴 돈(출금 합계, 소비 제외·취소 거래 제외)", example = "15300") long dayTotal,
             List<Item> items
     ) {
     }

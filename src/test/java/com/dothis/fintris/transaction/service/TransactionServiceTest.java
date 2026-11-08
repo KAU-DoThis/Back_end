@@ -177,8 +177,8 @@ class TransactionServiceTest {
                 .thenReturn(new SliceImpl<>(List.of(late, early, older), PageRequest.of(0, 3), true));
         when(transactionRepository.sumByDay(USER_ID, LocalDateTime.of(2026, 10, 10, 0, 0),
                 LocalDateTime.of(2026, 10, 15, 0, 0), null, null, null))
-                .thenReturn(List.of(new DayTotal(LocalDate.of(2026, 10, 14), -15_300L),
-                        new DayTotal(LocalDate.of(2026, 10, 10), -30_800L)));
+                .thenReturn(List.of(new DayTotal(LocalDate.of(2026, 10, 14), 15_300L),
+                        new DayTotal(LocalDate.of(2026, 10, 10), 30_800L)));
 
         TransactionListResponse response = service.getTransactions(USER_ID, OCTOBER, null, null,
                 TransactionListFilter.ALL, 0, 3);
@@ -191,7 +191,7 @@ class TransactionServiceTest {
         assertThat(response.counts()).isEqualTo(new TransactionListResponse.Counts(2L, 1L));
         assertThat(response.days()).extracting(TransactionListResponse.Day::date)
                 .containsExactly(LocalDate.of(2026, 10, 14), LocalDate.of(2026, 10, 10));
-        assertThat(response.days()).extracting(TransactionListResponse.Day::dayTotal).containsExactly(-15_300L, -30_800L);
+        assertThat(response.days()).extracting(TransactionListResponse.Day::dayTotal).containsExactly(15_300L, 30_800L);
         assertThat(response.days().getFirst().items()).extracting(item -> item.transaction().transactionId())
                 .containsExactly(3L, 2L);
         assertThat(response.hasNext()).isTrue();

@@ -436,13 +436,13 @@ v3와 같다. 응답의 `todayRemaining`은 홈 `dailyGuide.todayRemaining`과 �
     "counts": { "needsReview": 2, "provisional": 1 },
     "days": [
       {
-        "date": "2026-10-14", "dayTotal": -15300,
+        "date": "2026-10-14", "dayTotal": 15300,
         "items": [
           { "kind": "TRANSACTION", "transaction": { "...거래 객체" }, "notice": "카드 내역이 들어오면 자동으로 확정돼요" }
         ]
       },
       {
-        "date": "2026-10-10", "dayTotal": -30800,
+        "date": "2026-10-10", "dayTotal": 30800,
         "items": [
           { "kind": "TRANSACTION", "transaction": { "...빠른 입력 거래" }, "notice": "직접 넣은 거래가 이틀째 카드 내역에 없어요. 실제로 결제한 게 맞나요?", "reviewActions": ["KEEP", "DELETE"] }
         ]
@@ -461,6 +461,7 @@ v3와 같다. 응답의 `todayRemaining`은 홈 `dailyGuide.todayRemaining`과 �
 - `linkedAccountId`를 주면(09-2) `summary.account`에 `{ "linkedAccountId": 3, "institutionName": "KB국민", "last4": "1234" }`, 금액은 그 계좌 기준
 - `nextExpectedIncome`은 입금원 분석 결과(5장 홈과 같은 값). 없으면 `null`
 - `pendingQuestion`은 가장 최근 미답변 맥락 질문 1개
+- `dayTotal`은 그날 쓴 돈(출금 합계)을 양수로 준다. 취소·소비 제외 거래는 빼고, 입금은 넣지 않는다
 
 ### 거래 상세 · 카테고리 수정 · 확인 필요 처리 · 받을 돈 · 카테고리 목록 · 허용 앱 목록
 v3와 같다. 확인 필요 처리 `action`: `KEEP`(유지) · `DELETE`(삭제, 블록 잔액 복구).
