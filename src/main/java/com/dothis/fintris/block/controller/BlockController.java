@@ -5,9 +5,12 @@ import com.dothis.fintris.block.dto.BlockCreateRequest;
 import com.dothis.fintris.block.dto.BlockDeleteResponse;
 import com.dothis.fintris.block.dto.BlockListResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
+import com.dothis.fintris.block.dto.BlockProposalConfirmRequest;
+import com.dothis.fintris.block.dto.BlockProposalConfirmResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
 import com.dothis.fintris.block.entity.BlockType;
+import com.dothis.fintris.block.service.BlockProposalService;
 import com.dothis.fintris.block.service.BlockService;
 import com.dothis.fintris.global.api.ApiResponse;
 import com.dothis.fintris.global.api.code.GeneralSuccessCode;
@@ -35,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class BlockController {
 
     private final BlockService blockService;
+    private final BlockProposalService blockProposalService;
 
     @Operation(summary = "블록 목록 조회", description = "display_order 순, 삭제된 블록 제외")
     @GetMapping
@@ -60,6 +64,16 @@ public class BlockController {
             @AuthenticationPrincipal Long userId,
             @RequestBody @Valid BlockCreateRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, blockService.createBlock(userId, request));
+    }
+
+    @Operation(summary = "초기 블록 확정 (온보딩 3/3)",
+            description = "고친 구성안을 잔액과 함께 한 번에 만든다. 보낸 순서가 표시 순서. "
+                    + "블록 합계가 연동 잔액보다 크면 BLOCK_INSUFFICIENT_FUNDS, 남는 돈은 '남은 돈' 나눌 돈")
+    @PostMapping("/proposals/confirm")
+    public ApiResponse<BlockProposalConfirmResponse> confirmProposals(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody @Valid BlockProposalConfirmRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, blockProposalService.confirm(userId, request));
     }
 
     // /order가 /{blockId}보다 먼저 매칭된다 (고정 경로 우선)
