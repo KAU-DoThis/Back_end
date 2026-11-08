@@ -1,6 +1,5 @@
 package com.dothis.fintris.transaction.service;
 
-import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +22,7 @@ public class TransactionSyncScheduler {
     @Scheduled(cron = "0 0 6,13,20 * * *", zone = "Asia/Seoul")
     public void syncAllUsers() {
         int failed = 0;
-        for (Long userId : linkedAccountRepository.findUserIdsWithActive(LinkedAccountType.BANK)) {
+        for (Long userId : linkedAccountRepository.findUserIdsWithActive()) {
             try {
                 manualSyncService.runScheduled(userId);
             } catch (RuntimeException e) {
