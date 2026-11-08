@@ -22,6 +22,15 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     // 카드 취소는 같은 키의 기존 거래를 고쳐야 해서 키가 아니라 거래를 가져온다
     List<Transaction> findAllByUser_IdAndExternalKeyIn(Long userId, Collection<String> keys);
 
+    // 체크카드 중복 판정용. 은행·카드 구분이 필요해 계좌를 함께 가져온다
+    @EntityGraph(attributePaths = "linkedAccount")
+    @Query("""
+            select t from Transaction t
+            where t.user.id = :userId and t.occurredAt >= :from and t.isCanceled = false
+              and t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
+            """)
+    List<Transaction> findOutgoingSince(@Param("userId") Long userId, @Param("from") LocalDateTime from);
+
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     @Query("""
             select t from Transaction t

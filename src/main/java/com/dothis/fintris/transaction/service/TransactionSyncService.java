@@ -56,10 +56,16 @@ public class TransactionSyncService {
     private final LinkedAccountRepository linkedAccountRepository;
     private final CodefBankTransactionClient codefBankTransactionClient;
     private final CodefCardApprovalClient codefCardApprovalClient;
+    private final CheckCardDuplicateMatcher checkCardDuplicateMatcher;
 
     // 은행 계좌는 하나씩, 카드는 카드사 단위로 동기화한다. 하나가 실패해도 나머지는 계속하고 실패한 계좌·카드 수를 센다
     public SyncSummary syncUser(Long userId) {
         List<LinkedAccount> accounts = linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId);
+        // 동기화가 lastSyncedAt을 바꾸기 전에 이번에 조회할 가장 이른 날을 정해 둔다 (체크카드 중복 판정 범위)
+        LocalDate checkFrom = accounts.stream().anyMatch(account -> account.getLastSyncedAt() == null)
+                ? LocalDate.now(KST).minusMonths(INITIAL_MONTHS)
+                : accounts.stream().map(LinkedAccount::getLastSyncedAt).min(LocalDateTime::compareTo)
+                        .map(at -> at.toLocalDate().minusDays(1)).orElse(LocalDate.now(KST));
         int failed = 0;
         for (LinkedAccount bank : accounts.stream().filter(account -> account.getType() == LinkedAccountType.BANK).toList()) {
             try {
@@ -80,7 +86,26 @@ public class TransactionSyncService {
                 log.warn("카드 승인내역 동기화 실패: institution={}", cards.getFirst().getInstitutionCode());
             }
         }
+        boolean hasBank = accounts.stream().anyMatch(account -> account.getType() == LinkedAccountType.BANK);
+        if (hasBank && !cardsByInstitution.isEmpty()) {
+            try {
+                excludeCheckCardDuplicates(userId, checkFrom);
+            } catch (RuntimeException e) {
+                log.warn("체크카드 중복 판정 실패");
+            }
+        }
         return new SyncSummary(accounts.size(), failed);
+    }
+
+    // 체크카드 결제가 카드·은행에 둘 다 찍혀 쓴 돈이 두 번 세지지 않게 은행 쪽 출금을 소비 제외한다
+    // TODO: 블록 반영(F-21)이 붙으면 제외한 은행 출금이 블록에서 빠졌던 금액도 되돌린다
+    void excludeCheckCardDuplicates(Long userId, LocalDate from) {
+        List<Transaction> duplicates = checkCardDuplicateMatcher.findBankDuplicates(
+                transactionRepository.findOutgoingSince(userId, from.atStartOfDay()));
+        duplicates.forEach(Transaction::excludeFromSpending);
+        if (!duplicates.isEmpty()) {
+            transactionRepository.saveAll(duplicates);
+        }
     }
 
     // 같은 카드사의 카드들은 connectedId가 같아 한 번에 조회한다. 새로 저장한 거래 수를 돌려준다

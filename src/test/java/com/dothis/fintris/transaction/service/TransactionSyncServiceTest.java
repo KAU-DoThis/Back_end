@@ -56,6 +56,7 @@ class TransactionSyncServiceTest {
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock CodefBankTransactionClient codefBankTransactionClient;
     @Mock CodefCardApprovalClient codefCardApprovalClient;
+    @Mock CheckCardDuplicateMatcher checkCardDuplicateMatcher;
     @InjectMocks TransactionSyncService service;
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
@@ -489,5 +490,39 @@ class TransactionSyncServiceTest {
         assertThat(first.getStatus()).isEqualTo(LinkedAccountStatus.EXPIRED);
         assertThat(second.getStatus()).isEqualTo(LinkedAccountStatus.EXPIRED);
         verify(transactionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("은행·카드가 모두 있으면 동기화 뒤 체크카드 중복인 은행 출금을 소비 제외로 저장한다")
+    void excludesCheckCardDuplicatesAfterSync() {
+        LinkedAccount bank = bankAccount(LocalDateTime.of(2026, 11, 5, 6, 0));
+        LinkedAccount shinhanCard = card(21L, "6056********1111", "1111", LocalDateTime.of(2026, 11, 3, 6, 0));
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(1L))
+                .thenReturn(List.of(bank, shinhanCard));
+        givenFetched();
+        givenApprovals();
+        Transaction duplicate = Transaction.builder().user(user).linkedAccount(bank).occurredAt(C1).amount(4_500L)
+                .direction(TransactionDirection.OUT).source(TransactionSource.CODEF)
+                .status(TransactionStatus.CONFIRMED).build();
+        List<Transaction> outgoing = List.of(duplicate);
+        when(transactionRepository.findOutgoingSince(1L, LocalDateTime.of(2026, 11, 2, 0, 0))).thenReturn(outgoing);
+        when(checkCardDuplicateMatcher.findBankDuplicates(outgoing)).thenReturn(List.of(duplicate));
+
+        service.syncUser(1L);
+
+        assertThat(duplicate.isExcluded()).isTrue();
+        verify(transactionRepository).saveAll(List.of(duplicate));
+    }
+
+    @Test
+    @DisplayName("카드가 없으면 체크카드 중복 판정을 하지 않는다")
+    void skipsDuplicateCheckWithoutCards() {
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(1L))
+                .thenReturn(List.of(bankAccount(null)));
+        givenFetched();
+
+        service.syncUser(1L);
+
+        verify(transactionRepository, never()).findOutgoingSince(any(), any());
     }
 }

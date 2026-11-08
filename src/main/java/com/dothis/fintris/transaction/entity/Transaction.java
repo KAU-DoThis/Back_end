@@ -104,6 +104,11 @@ public class Transaction extends BaseEntity {
         this.isCanceled = true;
     }
 
+    // 체크카드 중복 등 쓴 돈으로 세지 않을 거래
+    public void excludeFromSpending() {
+        this.excluded = true;
+    }
+
     // 부분 취소로 남은 금액만 남긴다
     public void changeAmount(long amount) {
         this.amount = amount;
