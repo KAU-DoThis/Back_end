@@ -160,13 +160,8 @@ public class TransactionSyncService {
         return value.length() > MERCHANT_MAX_LENGTH ? value.substring(0, MERCHANT_MAX_LENGTH) : value;
     }
 
-    // 응답이 과거순이라 뒤에서부터 잔액이 있는 첫 거래를 찾는다
+    // 응답이 과거순이라 마지막 거래가 가장 최신이다. 그 잔액이 없으면 앞 거래 잔액은 이미 지난 값이라 쓰지 않는다
     private Long latestBalance(List<BankTransaction> transactions) {
-        for (int i = transactions.size() - 1; i >= 0; i--) {
-            if (transactions.get(i).balanceAfter() != null) {
-                return transactions.get(i).balanceAfter();
-            }
-        }
-        return null;
+        return transactions.isEmpty() ? null : transactions.getLast().balanceAfter();
     }
 }

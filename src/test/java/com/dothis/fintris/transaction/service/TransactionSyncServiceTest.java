@@ -176,6 +176,20 @@ class TransactionSyncServiceTest {
     }
 
     @Test
+    @DisplayName("마지막 거래의 잔액을 모르면 앞 거래 잔액을 쓰지 않고 기존 잔액을 그대로 둔다")
+    void keepsBalanceWhenLatestBalanceUnknown() {
+        LinkedAccount account = bankAccount(null);
+        ReflectionTestUtils.setField(account, "balance", 50_000L);
+        givenFetched(out(T1, 4_500, 120_000L, "스타벅스"), out(T2, 8_000, null, "버스"));
+
+        service.syncAccount(account);
+
+        assertThat(account.getBalance()).isEqualTo(50_000L);
+        assertThat(account.getBalanceUpdatedAt()).isNull();
+        assertThat(account.getLastSyncedAt()).isNotNull();
+    }
+
+    @Test
     @DisplayName("새 거래가 없어도 동기화 시각은 갱신하고 기존 잔액은 그대로 둔다")
     void keepsBalanceWhenNothingFetched() {
         LinkedAccount account = bankAccount(null);
