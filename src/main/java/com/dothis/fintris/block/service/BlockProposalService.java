@@ -6,9 +6,12 @@ import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.block.code.BlockErrorCode;
 import com.dothis.fintris.block.dto.BlockProposalConfirmRequest;
 import com.dothis.fintris.block.dto.BlockProposalConfirmResponse;
+import com.dothis.fintris.block.dto.BlockProposalResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.entity.Block;
+import com.dothis.fintris.block.entity.BlockColor;
 import com.dothis.fintris.block.entity.BlockCreatedBy;
+import com.dothis.fintris.block.entity.BlockRule;
 import com.dothis.fintris.block.entity.BlockTransfer;
 import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.entity.TransferReason;
@@ -29,6 +32,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -47,6 +52,36 @@ public class BlockProposalService {
     private final LinkedAccountRepository linkedAccountRepository;
     private final UserRepository userRepository;
     private final UserSettingRepository userSettingRepository;
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final List<String> ADDABLE_PRESETS = List.of("SAVING", "EMERGENCY", "TRAVEL");
+
+    // 구성안 조회: 아직 나누지 않은 돈으로 기본 생활비 블록 하나를 제안한다
+    // TODO: 거래 동기화(#37)가 붙으면 고정지출 탐지(3회 이상·금액 편차 10%·날짜 편차 3일), 월 평균 수입,
+    //       최근 3달 평균 지출로 구성안을 채우고 reason은 AI 문장(실패 시 템플릿)으로 바꾼다
+    public BlockProposalResponse getProposals(Long userId) {
+        long linked = linkedBalance(userId);
+        long available = Math.max(0, linked
+                - blockRepository.sumBalanceByUserId(userId)
+                - waitingFundRepository.sumAmountByUserId(userId));
+
+        List<BlockProposalResponse.Proposal> proposals = new ArrayList<>();
+        // 이미 기본 블록이 있으면 새로 제안하지 않는다
+        if (!blockRepository.existsByUser_IdAndIsDefaultTrueAndDeletedAtIsNull(userId)) {
+            LocalDate today = LocalDate.now(KST);
+            long daily = available / today.lengthOfMonth() / 100 * 100;
+            proposals.add(new BlockProposalResponse.Proposal(
+                    "spending-default", BlockType.SPENDING, "생활비", "wallet", BlockColor.I, true,
+                    available, new BlockRule(available, 1, null, null, null, null, null),
+                    null, null, daily, null,
+                    "아직 거래 내역이 없어 남은 잔액 전체로 시작했어요. 한 달에 쓸 만큼으로 고쳐 주세요."));
+        }
+        long allocated = proposals.stream().mapToLong(BlockProposalResponse.Proposal::balance).sum();
+
+        return new BlockProposalResponse(
+                new BlockProposalResponse.Summary(null, 0, linked, allocated, available - allocated),
+                proposals, ADDABLE_PRESETS, false);
+    }
 
     // [시작하기]: 고친 구성안을 잔액과 함께 한 번에 만들고, 남는 돈은 '남은 돈' 나눌 돈으로 둔다
     @Transactional

@@ -7,6 +7,7 @@ import com.dothis.fintris.block.dto.BlockListResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
 import com.dothis.fintris.block.dto.BlockProposalConfirmRequest;
 import com.dothis.fintris.block.dto.BlockProposalConfirmResponse;
+import com.dothis.fintris.block.dto.BlockProposalResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
 import com.dothis.fintris.block.entity.BlockType;
@@ -64,6 +65,13 @@ public class BlockController {
             @AuthenticationPrincipal Long userId,
             @RequestBody @Valid BlockCreateRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, blockService.createBlock(userId, request));
+    }
+
+    @Operation(summary = "초기 블록 구성안 (온보딩 3/3)",
+            description = "확정 전엔 아무것도 저장하지 않는다. 거래 분석 전이라 지금은 남은 잔액으로 기본 생활비 블록만 제안한다")
+    @GetMapping("/proposals")
+    public ApiResponse<BlockProposalResponse> getProposals(@AuthenticationPrincipal Long userId) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockProposalService.getProposals(userId));
     }
 
     @Operation(summary = "초기 블록 확정 (온보딩 3/3)",
