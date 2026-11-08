@@ -13,7 +13,9 @@ import java.util.List;
 public interface BlockTransferRepository extends JpaRepository<BlockTransfer, Long> {
 
     // 목표형 "이번 달 확보액" = 이번 달 들어온 돈 - 나간 돈
-    @Query("select coalesce(sum(t.amount), 0) from BlockTransfer t where t.toBlock.id = :blockId and t.createdAt >= :from")
+    // 블록을 만들 때 넣은 첫 배분(보내는 쪽 없음)은 이미 모아 둔 돈이라 이번 달 확보액에서 뺀다
+    @Query("select coalesce(sum(t.amount), 0) from BlockTransfer t where t.toBlock.id = :blockId and t.createdAt >= :from "
+            + "and (t.fromBlock is not null or t.fromWaitingFund is not null)")
     long sumInSince(@Param("blockId") Long blockId, @Param("from") LocalDateTime from);
 
     @Query("select coalesce(sum(t.amount), 0) from BlockTransfer t where t.fromBlock.id = :blockId and t.createdAt >= :from")

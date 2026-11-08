@@ -3,6 +3,7 @@ package com.dothis.fintris.block.controller;
 import com.dothis.fintris.block.dto.BlockCategoryRequest;
 import com.dothis.fintris.block.dto.BlockCreateRequest;
 import com.dothis.fintris.block.dto.BlockDeleteResponse;
+import com.dothis.fintris.block.dto.BlockDetailResponse;
 import com.dothis.fintris.block.dto.BlockHistoryResponse;
 import com.dothis.fintris.block.dto.BlockListResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
@@ -53,12 +54,10 @@ public class BlockController {
                 new BlockListResponse(blockService.getBlocks(userId, type)));
     }
 
-    @Operation(summary = "블록 상세 조회")
+    @Operation(summary = "블록 상세 조회", description = "유형별 detail (사용형 02 / 목표형 02-1 / 고정지출형 02-2)")
     @GetMapping("/{blockId}")
-    public ApiResponse<BlockResponse> getBlock(
-            @AuthenticationPrincipal Long userId,
-            @PathVariable Long blockId) {
-        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockService.getBlock(userId, blockId));
+    public ApiResponse<BlockDetailResponse> getBlock(@AuthenticationPrincipal Long userId, @PathVariable Long blockId) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockDetailService.getDetail(userId, blockId));
     }
 
     @Operation(summary = "블록 생성",

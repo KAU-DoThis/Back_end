@@ -116,11 +116,11 @@ public final class ImpactCalculator {
     }
 
     // 2주 이상은 주 단위로 반올림, 그보다 짧으면 일 단위
-    static String span(long days) {
+    public static String span(long days) {
         return days >= 14 ? Math.round(days / 7.0) + "주" : days + "일";
     }
 
-    static String won(long amount) {
+    public static String won(long amount) {
         return String.format("%,d", amount);
     }
 }

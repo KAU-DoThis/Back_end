@@ -75,11 +75,6 @@ public class BlockService {
                 .toList();
     }
 
-    public BlockResponse getBlock(Long userId, Long blockId) {
-        Block block = findOwnedBlock(userId, blockId);
-        return toResponse(block);
-    }
-
     @Transactional
     public BlockResponse createBlock(Long userId, BlockCreateRequest request) {
         User user = userRepository.findById(userId)
