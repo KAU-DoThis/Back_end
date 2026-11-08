@@ -85,6 +85,18 @@ public class BlockService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> GeneralException.of(UserErrorCode.USER_NOT_FOUND));
 
+        // 새 블록은 맨 뒤에 둔다
+        int nextOrder = blockRepository.findTopByUser_IdAndDeletedAtIsNullOrderByDisplayOrderDesc(userId)
+                .map(last -> last.getDisplayOrder() + 1)
+                .orElse(0);
+
+        Block block = newBlock(user, request, 0, nextOrder, false, BlockCreatedBy.USER);
+        return BlockResponse.of(blockRepository.save(block), List.of());
+    }
+
+    // 블록 생성 규칙(기본값·검증)을 한곳에 둔다. 일반 생성과 초기 블록 확정(04)이 같이 쓴다
+    Block newBlock(User user, BlockCreateRequest request, long balance, int displayOrder,
+                   boolean isDefault, BlockCreatedBy createdBy) {
         LocalDate today = LocalDate.now(KST);
         LocalDate startDate = (request.startDate() != null) ? request.startDate() : today;
         LocalDate dueDate = request.dueDate();
@@ -97,34 +109,29 @@ public class BlockService {
         validateNewDueDate(dueDate, today);
         validate(request.type(), request.targetAmount(), startDate, dueDate, request.rule());
 
-        // 목표형은 월 확보 금액을 비우면 권장값(남은 금액 ÷ 남은 개월, 올림)으로 채운다 (F-07). 새 블록은 잔액 0
+        // 목표형은 월 확보 금액을 비우면 권장값(남은 금액 ÷ 남은 개월, 올림)으로 채운다 (F-07)
         BlockRule rule = request.rule();
         if (request.type() == BlockType.GOAL && (rule == null || rule.monthlyTarget() == null)) {
-            long recommended = BlockCalculator.recommendedMonthlyTarget(request.targetAmount(), 0, today, dueDate);
+            long recommended = BlockCalculator.recommendedMonthlyTarget(request.targetAmount(), balance, today, dueDate);
             rule = ((rule != null) ? rule : BlockRule.empty()).withMonthlyTarget(recommended);
         }
 
-        // 새 블록은 맨 뒤에 둔다
-        int nextOrder = blockRepository.findTopByUser_IdAndDeletedAtIsNullOrderByDisplayOrderDesc(userId)
-                .map(last -> last.getDisplayOrder() + 1)
-                .orElse(0);
-
-        Block block = Block.builder()
+        return Block.builder()
                 .user(user)
                 .type(request.type())
                 .name(request.name())
                 .icon(request.icon())
                 .color(request.color() != null ? request.color() : BlockColor.defaultFor(request.type()))
+                .balance(balance)
+                .isDefault(isDefault)
                 .targetAmount(request.targetAmount())
                 .startDate(startDate)
                 .dueDate(dueDate)
                 .rule(rule)
-                .status(BlockStatus.SAFE) // 상태 판정은 S3 이후. 지금은 SAFE 고정
-                .createdBy(BlockCreatedBy.USER)
-                .displayOrder(nextOrder)
+                .status(BlockStatus.SAFE) // 상태 판정은 S4(F-11). 지금은 SAFE 고정
+                .createdBy(createdBy)
+                .displayOrder(displayOrder)
                 .build();
-
-        return BlockResponse.of(blockRepository.save(block), List.of());
     }
 
     @Transactional
