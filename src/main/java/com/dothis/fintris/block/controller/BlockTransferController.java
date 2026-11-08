@@ -1,5 +1,8 @@
 package com.dothis.fintris.block.controller;
 
+import com.dothis.fintris.block.dto.TransferRequest;
+import com.dothis.fintris.block.dto.TransferResponse;
+import com.dothis.fintris.block.service.BlockTransferService;
 import com.dothis.fintris.block.simulation.BlockSimulationService;
 import com.dothis.fintris.block.simulation.SimulateRequest;
 import com.dothis.fintris.block.simulation.SimulateResponse;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class BlockTransferController {
 
     private final BlockSimulationService blockSimulationService;
+    private final BlockTransferService blockTransferService;
 
     @Operation(summary = "이동·배분 미리보기",
             description = "블록 → 블록 또는 나눌 돈 → 블록. 저장하지 않고 결과 항목만 계산한다. "
@@ -31,5 +35,14 @@ public class BlockTransferController {
                                                   @RequestBody @Valid SimulateRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK,
                 blockSimulationService.simulate(userId, request.changes()).response());
+    }
+
+    @Operation(summary = "블록 간 이동 확정",
+            description = "미리보기와 같은 계산을 거친 뒤 반영한다. version이 바뀌었으면 409 BLOCK_VERSION_CONFLICT, "
+                    + "잔액보다 크면 TRANSFER_INSUFFICIENT_BALANCE, requiresConfirm인데 confirmed가 없으면 TRANSFER_CONFIRM_REQUIRED")
+    @PostMapping("/transfers")
+    public ApiResponse<TransferResponse> transfer(@AuthenticationPrincipal Long userId,
+                                                  @RequestBody @Valid TransferRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, blockTransferService.transfer(userId, request));
     }
 }
