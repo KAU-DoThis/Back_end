@@ -16,8 +16,8 @@ import java.util.List;
 // 목록 조회의 linkedAccountId·blockId·status는 null이면 조건을 걸지 않는다
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
 
-    @Query("select t.externalKey from Transaction t where t.externalKey in :keys")
-    List<String> findExistingExternalKeys(@Param("keys") Collection<String> keys);
+    @Query("select t.externalKey from Transaction t where t.user.id = :userId and t.externalKey in :keys")
+    List<String> findExistingExternalKeys(@Param("userId") Long userId, @Param("keys") Collection<String> keys);
 
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     @Query("""

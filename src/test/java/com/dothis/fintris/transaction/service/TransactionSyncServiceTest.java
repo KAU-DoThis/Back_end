@@ -54,6 +54,10 @@ class TransactionSyncServiceTest {
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
 
+    {
+        ReflectionTestUtils.setField(user, "id", 1L);
+    }
+
     private LinkedAccount bankAccount(LocalDateTime lastSyncedAt) {
         LinkedAccount account = LinkedAccount.builder().user(user).institutionCode(KOOKMIN)
                 .type(LinkedAccountType.BANK).connectedId("cid-1").accountNumber(ACCOUNT_NUMBER)
@@ -62,8 +66,9 @@ class TransactionSyncServiceTest {
         return account;
     }
 
-    private BankTransaction out(LocalDateTime at, long amount, Long balance, String desc1) {
-        return new BankTransaction(at, TransactionDirection.OUT, amount, balance, desc1, null, null, null);
+    // 은행 적요(desc3)가 가맹점·수취인이 된다 (v5)
+    private BankTransaction out(LocalDateTime at, long amount, Long balance, String desc3) {
+        return new BankTransaction(at, TransactionDirection.OUT, amount, balance, null, null, desc3, null);
     }
 
     private void givenFetched(BankTransaction... transactions) {
@@ -95,7 +100,7 @@ class TransactionSyncServiceTest {
         assertThat(saved.getBalanceAfter()).isEqualTo(120_000L);
         assertThat(saved.getSource()).isEqualTo(TransactionSource.CODEF);
         assertThat(saved.getStatus()).isEqualTo(TransactionStatus.CONFIRMED);
-        assertThat(saved.getExternalKey()).isEqualTo("7|20261001093015|OUT|4500|120000");
+        assertThat(saved.getExternalKey()).isEqualTo(TransactionSyncService.bankExternalKey(7L, T1, 4_500, "스타벅스"));
     }
 
     @Test
@@ -114,8 +119,8 @@ class TransactionSyncServiceTest {
     @DisplayName("이미 저장된 거래는 다시 저장하지 않는다")
     void skipsAlreadySavedTransactions() {
         givenFetched(out(T1, 4_500, 120_000L, "스타벅스"), out(T2, 8_000, 112_000L, "버스"));
-        when(transactionRepository.findExistingExternalKeys(anyCollection()))
-                .thenReturn(List.of("7|20261001093015|OUT|4500|120000"));
+        when(transactionRepository.findExistingExternalKeys(eq(1L), anyCollection()))
+                .thenReturn(List.of(TransactionSyncService.bankExternalKey(7L, T1, 4_500, "스타벅스")));
 
         int count = service.syncAccount(bankAccount(null));
 
@@ -124,24 +129,36 @@ class TransactionSyncServiceTest {
     }
 
     @Test
-    @DisplayName("같은 초에 금액·잔액까지 같은 거래는 번호를 붙여 둘 다 저장한다")
+    @DisplayName("같은 초에 금액·적요까지 같은 거래는 번호를 붙여 둘 다 저장한다")
     void keepsIdenticalTransactionsWithSequence() {
-        givenFetched(out(T1, 1_000, null, "a"), out(T1, 1_000, null, "b"));
+        givenFetched(out(T1, 1_000, null, "편의점"), out(T1, 1_000, null, "편의점"));
 
         service.syncAccount(bankAccount(null));
 
-        assertThat(savedTransactions()).extracting(Transaction::getExternalKey)
-                .containsExactly("7|20261001093015|OUT|1000|-", "7|20261001093015|OUT|1000|-#2");
+        String key = TransactionSyncService.bankExternalKey(7L, T1, 1_000, "편의점");
+        assertThat(savedTransactions()).extracting(Transaction::getExternalKey).containsExactly(key, key + "#2");
     }
 
     @Test
-    @DisplayName("가맹점은 보낸분/받는분, 적요, 거래구분 순으로 처음 채워진 값을 쓴다")
-    void picksMerchantFromFirstFilledDescription() {
-        givenFetched(new BankTransaction(T1, TransactionDirection.IN, 300_000, 420_000L, " ", "이체", "급여", null));
+    @DisplayName("중복 판정 키는 계좌·일시·금액·적요의 SHA-256 해시이고, 적요가 다르면 키도 다르다")
+    void externalKeyIsHashOfAccountTimeAmountAndDescription() {
+        String key = TransactionSyncService.bankExternalKey(7L, T1, 1_000, "편의점");
+
+        assertThat(key).hasSize(64).matches("[0-9a-f]+");
+        assertThat(TransactionSyncService.bankExternalKey(7L, T1, 1_000, " 편의점 ")).isEqualTo(key);
+        assertThat(TransactionSyncService.bankExternalKey(7L, T1, 1_000, "카페")).isNotEqualTo(key);
+        assertThat(TransactionSyncService.bankExternalKey(8L, T1, 1_000, "편의점")).isNotEqualTo(key);
+    }
+
+    @Test
+    @DisplayName("가맹점·수취인은 적요(desc3)만 쓰고, 비어 있으면 null")
+    void usesOnlyDesc3AsMerchant() {
+        givenFetched(new BankTransaction(T1, TransactionDirection.IN, 300_000, 420_000L, "김철수", "이체", " 급여 ", null),
+                new BankTransaction(T2, TransactionDirection.OUT, 5_000, 415_000L, "홍길동", "이체", " ", null));
 
         service.syncAccount(bankAccount(null));
 
-        assertThat(savedTransactions().get(0).getMerchantOrPayee()).isEqualTo("급여");
+        assertThat(savedTransactions()).extracting(Transaction::getMerchantOrPayee).containsExactly("급여", null);
     }
 
     @Test

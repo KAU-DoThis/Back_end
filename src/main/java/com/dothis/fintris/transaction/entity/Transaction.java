@@ -16,6 +16,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -26,7 +27,8 @@ import java.time.LocalDateTime;
 
 // classify_stage는 AI 내부 단계라 BE에서 쓰게 되면 추가한다
 @Entity
-@Table(name = "transactions")
+@Table(name = "transactions", uniqueConstraints = @UniqueConstraint(
+        name = "uk_transactions_external_key", columnNames = {"user_id", "external_key"}))
 @Getter
 @SuperBuilder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -56,6 +58,9 @@ public class Transaction extends BaseEntity {
     private TransactionDirection direction;
 
     private String merchantOrPayee;
+
+    @Column(length = 100)
+    private String merchantType; // 카드 가맹점 업종. 은행·현금은 null
 
     private Long balanceAfter;
 
@@ -91,8 +96,7 @@ public class Transaction extends BaseEntity {
     @Column(nullable = false)
     private boolean isCanceled;
 
-    // CODEF 거래에는 고유 ID가 없어 계좌·일시·방향·금액·잔액으로 직접 만든 중복 판정 키
-    @Column(unique = true)
+    // CODEF 중복 판정 키 (v5). 사용자 안에서 유일하다
     private String externalKey;
 
     // 사용자가 고친 분류는 자동 분류보다 우선한다 (F-20)
