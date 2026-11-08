@@ -3,6 +3,8 @@
 -- 기준: FINTRIS_개발_컨텍스트_v3.md 8장 (기능 명세서 F-01~F-26)
 -- 작성: 2026-10-13
 --
+-- 빈 DB용이다. 이미 만들어진 DB는 db/upgrade/ 아래 증분 SQL을 순서대로 실행한다
+--
 -- 규칙
 --  - PK: BIGINT AUTO_INCREMENT, 이름은 {단수}_id
 --  - 테이블 복수형 snake_case, enum은 VARCHAR (JPA @Enumerated STRING)
