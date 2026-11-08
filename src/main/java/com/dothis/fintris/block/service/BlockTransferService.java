@@ -78,7 +78,7 @@ public class BlockTransferService {
     }
 
     // 홈 dailyGuide와 같은 계산 (기본 블록 잔액 ÷ 남은 일수, 100원 내림)
-    TransferResponse.DailyGuide dailyGuide(Long userId) {
+    public TransferResponse.DailyGuide dailyGuide(Long userId) {
         return blockRepository.findFirstByUser_IdAndIsDefaultTrueAndDeletedAtIsNull(userId)
                 .filter(block -> block.getDueDate() != null)
                 .map(block -> {

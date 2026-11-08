@@ -182,7 +182,7 @@ public class BlockSimulationService {
         return block;
     }
 
-    private WaitingFund findOwnedFund(Long userId, Long fundId) {
+    public WaitingFund findOwnedFund(Long userId, Long fundId) {
         WaitingFund fund = waitingFundRepository.findById(fundId)
                 .orElseThrow(() -> GeneralException.of(WaitingFundErrorCode.WAITING_FUND_NOT_FOUND));
         if (!fund.isOwnedBy(userId)) {
