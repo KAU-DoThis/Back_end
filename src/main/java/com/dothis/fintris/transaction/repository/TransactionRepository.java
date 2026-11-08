@@ -19,6 +19,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("select t.externalKey from Transaction t where t.user.id = :userId and t.externalKey in :keys")
     List<String> findExistingExternalKeys(@Param("userId") Long userId, @Param("keys") Collection<String> keys);
 
+    // 카드 취소는 같은 키의 기존 거래를 고쳐야 해서 키가 아니라 거래를 가져온다
+    List<Transaction> findAllByUser_IdAndExternalKeyIn(Long userId, Collection<String> keys);
+
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     @Query("""
             select t from Transaction t
