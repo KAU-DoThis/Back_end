@@ -1,11 +1,14 @@
 package com.dothis.fintris.block.repository;
 
 import com.dothis.fintris.block.entity.BlockTransfer;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface BlockTransferRepository extends JpaRepository<BlockTransfer, Long> {
 
@@ -15,4 +18,14 @@ public interface BlockTransferRepository extends JpaRepository<BlockTransfer, Lo
 
     @Query("select coalesce(sum(t.amount), 0) from BlockTransfer t where t.fromBlock.id = :blockId and t.createdAt >= :from")
     long sumOutSince(@Param("blockId") Long blockId, @Param("from") LocalDateTime from);
+
+    // 블록 기록 (02 화면 "들어온 돈", "전체 보기"). 들어오고 나간 이동을 최근 순으로
+    @Query("select t from BlockTransfer t where t.toBlock.id = :blockId or t.fromBlock.id = :blockId "
+            + "order by t.createdAt desc, t.id desc")
+    Slice<BlockTransfer> findHistory(@Param("blockId") Long blockId, Pageable pageable);
+
+    // 목표형 월별 누적 그래프용 (오래된 순)
+    @Query("select t from BlockTransfer t where t.toBlock.id = :blockId or t.fromBlock.id = :blockId "
+            + "order by t.createdAt asc, t.id asc")
+    List<BlockTransfer> findAllOfBlock(@Param("blockId") Long blockId);
 }
