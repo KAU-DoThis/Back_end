@@ -1,5 +1,7 @@
 package com.dothis.fintris.block.service;
 
+import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.block.code.BlockErrorCode;
 import com.dothis.fintris.block.dto.BlockDetailResponse;
 import com.dothis.fintris.block.dto.BlockHistoryResponse;
@@ -13,6 +15,10 @@ import com.dothis.fintris.block.repository.BlockTransferRepository;
 import com.dothis.fintris.block.simulation.ImpactCalculator;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.home.service.DailyGuideCalculator;
+import com.dothis.fintris.transaction.dto.TransactionResponse;
+import com.dothis.fintris.transaction.entity.Transaction;
+import com.dothis.fintris.transaction.repository.BlockSpent;
+import com.dothis.fintris.transaction.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
@@ -25,7 +31,9 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
@@ -39,10 +47,13 @@ public class BlockDetailService {
     private static final int MAX_PAGE_SIZE = 50;
     private static final int RECENT_INFLOWS = 3;
     private static final int MAX_PROJECTED_MONTHS = 24;
+    private static final int RECENT_TRANSACTIONS = 5;
+    private static final int RECENT_PAYMENTS = 6;
 
     private final BlockRepository blockRepository;
     private final BlockTransferRepository blockTransferRepository;
     private final BlockCategoryRepository blockCategoryRepository;
+    private final TransactionRepository transactionRepository;
 
     public BlockDetailResponse getDetail(Long userId, Long blockId) {
         Block block = findOwnedBlock(userId, blockId);
@@ -107,6 +118,11 @@ public class BlockDetailService {
 
         // 모자라면 "다른 블록에서 채우기" 버튼 (03-2 이동 시트로)
         List<String> actions = shortage > 0 ? List.of("FILL_FROM_OTHER") : List.of();
+        // 고정지출 블록에 반영된 출금 = 납부 확인 조건에 맞은 납부
+        List<BlockDetailResponse.Payment> payments = transactionRepository
+                .findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(block.getId()).stream()
+                .map(transaction -> payment(transaction, payDay))
+                .toList();
 
         BlockDetailResponse.FixedDetail detail = new BlockDetailResponse.FixedDetail(
                 Objects.requireNonNullElse(BlockCalculator.fillRate(block.getBalance(), payAmount), 0),
@@ -115,8 +131,8 @@ public class BlockDetailService {
                 shortage,
                 rule != null ? rule.matchCondition() : null,
                 rule != null ? rule.alerts() : null,
-                null,
-                List.of());
+                onTimeStreak(payments),
+                payments.stream().limit(RECENT_PAYMENTS).toList());
         return new BlockDetailResponse(response, null, actions, ruleText(block), detail);
     }
 
@@ -124,16 +140,20 @@ public class BlockDetailService {
     private BlockDetailResponse spending(Block block, BlockResponse response, LocalDate today) {
         Long monthlyAmount = block.getRule() != null ? block.getRule().monthlyAmount() : null;
         long days = block.getDueDate() != null ? DailyGuideCalculator.remainingDays(today, block.getDueDate()) : 0;
-        long available = DailyGuideCalculator.todayAvailable(block.getBalance(), days);
-        long spent = 0; // TODO: 거래 반영(F-21)이 붙으면 오늘 쓴 돈을 채운다
+        // "오늘 가능"은 아침 기준이라 하루 동안 그대로다: 오늘 이 블록에서 뺀 돈을 되돌린 잔액으로 계산한다
+        BlockSpent todaySpent = transactionRepository.sumBlockSpent(block.getId(),
+                today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        long available = DailyGuideCalculator.todayAvailable(block.getBalance() + todaySpent.deducted(), days);
+        long spent = todaySpent.spent();
 
         BlockDetailResponse.SpendingDetail detail = new BlockDetailResponse.SpendingDetail(
                 new BlockDetailResponse.Period(block.getStartDate(), block.getDueDate()),
                 BlockCalculator.fillRate(block.getBalance(), monthlyAmount),
                 days,
                 new BlockDetailResponse.Today(available, spent, available - spent),
-                null,
-                List.of());
+                burn(block, monthlyAmount, today),
+                transactionRepository.findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(block.getId()).stream()
+                        .limit(RECENT_TRANSACTIONS).map(TransactionResponse::from).toList());
         return new BlockDetailResponse(response, null, List.of(), ruleText(block), detail);
     }
 
@@ -171,6 +191,52 @@ public class BlockDetailService {
             }
         }
         return points;
+    }
+
+    private BlockDetailResponse.Burn burn(Block block, Long monthlyAmount, LocalDate today) {
+        if (block.getStartDate() == null || block.getDueDate() == null) {
+            return null;
+        }
+        Map<LocalDate, Long> spentByDate = new HashMap<>();
+        transactionRepository.sumBlockSpentByDay(block.getId(), block.getStartDate().atStartOfDay(),
+                        block.getDueDate().plusDays(1).atStartOfDay())
+                .forEach(day -> spentByDate.put(day.date(), day.total()));
+        return BurnCalculator.calculate(monthlyAmount, block.getStartDate(), block.getDueDate(), today,
+                block.getBalance(), spentByDate);
+    }
+
+    private BlockDetailResponse.Payment payment(Transaction transaction, Integer payDay) {
+        LocalDate date = transaction.getOccurredAt().toLocalDate();
+        boolean onTime = payDay == null || date.getDayOfMonth() <= Math.min(payDay, date.lengthOfMonth());
+        return new BlockDetailResponse.Payment(date, transaction.getMerchantOrPayee(),
+                accountLabel(transaction.getLinkedAccount()), transaction.getAmount(), onTime);
+    }
+
+    // 예: 국민은행 ••34. 현금 입력이면 null
+    private String accountLabel(LinkedAccount account) {
+        if (account == null) {
+            return null;
+        }
+        String name = SupportedInstitution.findByCode(account.getInstitutionCode())
+                .map(SupportedInstitution::getDisplayName).orElse(account.getInstitutionCode());
+        return account.getAccountNumberLast4() == null ? name : name + " ••" + account.getAccountNumberLast4();
+    }
+
+    // 최신 납부부터 한 달씩 거슬러 올라가며, 달마다 제때 낸 납부가 있으면 센다. 빠진 달이나 늦은 달에서 멈춘다
+    static int onTimeStreak(List<BlockDetailResponse.Payment> payments) {
+        if (payments.isEmpty()) {
+            return 0;
+        }
+        Map<YearMonth, Boolean> onTimeByMonth = new HashMap<>();
+        for (BlockDetailResponse.Payment payment : payments) {
+            onTimeByMonth.merge(YearMonth.from(payment.date()), payment.onTime(), Boolean::logicalOr);
+        }
+        int streak = 0;
+        for (YearMonth month = YearMonth.from(payments.getFirst().date());
+             Boolean.TRUE.equals(onTimeByMonth.get(month)); month = month.minusMonths(1)) {
+            streak++;
+        }
+        return streak;
     }
 
     // 화면 "규칙" 한 줄

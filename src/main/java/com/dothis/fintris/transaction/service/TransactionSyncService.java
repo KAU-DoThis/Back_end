@@ -19,6 +19,7 @@ import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -34,6 +35,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -51,12 +53,15 @@ public class TransactionSyncService {
     // 다시 인증해야 하는 실패. 지금까지 확인한 코드만 담았고, 그 밖의 실패는 일시 오류(ERROR)로 본다
     private static final Set<String> REAUTH_FAILURE_CODES = Set.of("CF-12800", "CF-12801", "CF-12824", "CF-03002");
     private static final DateTimeFormatter KEY_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final int MAX_RECONCILE_ATTEMPTS = 3;
 
     private final TransactionRepository transactionRepository;
     private final LinkedAccountRepository linkedAccountRepository;
     private final CodefBankTransactionClient codefBankTransactionClient;
     private final CodefCardApprovalClient codefCardApprovalClient;
     private final CheckCardDuplicateMatcher checkCardDuplicateMatcher;
+    private final BlockReflector blockReflector;
+    private final BlockReflectionService blockReflectionService;
 
     // 은행 계좌는 하나씩, 카드는 카드사 단위로 동기화한다. 하나가 실패해도 나머지는 계속하고 실패한 계좌·카드 수를 센다
     public SyncSummary syncUser(Long userId) {
@@ -72,7 +77,7 @@ public class TransactionSyncService {
                 syncAccount(bank);
             } catch (RuntimeException e) {
                 failed++;
-                log.warn("거래내역 동기화 실패: institution={}", bank.getInstitutionCode());
+                log.warn("거래내역 동기화 실패: institution={}, reason={}", bank.getInstitutionCode(), failureReason(e));
             }
         }
         Map<String, List<LinkedAccount>> cardsByInstitution = accounts.stream()
@@ -83,7 +88,8 @@ public class TransactionSyncService {
                 syncCardInstitution(cards);
             } catch (RuntimeException e) {
                 failed += cards.size();
-                log.warn("카드 승인내역 동기화 실패: institution={}", cards.getFirst().getInstitutionCode());
+                log.warn("카드 승인내역 동기화 실패: institution={}, reason={}", cards.getFirst().getInstitutionCode(),
+                        failureReason(e));
             }
         }
         boolean hasBank = accounts.stream().anyMatch(account -> account.getType() == LinkedAccountType.BANK);
@@ -94,11 +100,48 @@ public class TransactionSyncService {
                 log.warn("체크카드 중복 판정 실패");
             }
         }
+        // 새 거래·취소·체크카드 중복 제외가 모두 끝난 뒤 블록 남은 돈을 맞춘다. 실패해도 다음 동기화가 다시 맞춘다
+        try {
+            reconcileBlocks(userId, checkFrom);
+        } catch (RuntimeException e) {
+            log.warn("블록 반영 실패");
+        }
         return new SyncSummary(accounts.size(), failed);
     }
 
+    // CODEF가 거절했으면 실패 코드·메시지, 그 밖이면 예외 종류만 남긴다 (인증정보는 로그에 남기지 않는다)
+    private static String failureReason(RuntimeException e) {
+        if (e instanceof AccountLinkRejectedException rejected) {
+            return rejected.getInstitutionCode() + " " + rejected.getInstitutionMessage();
+        }
+        return e.getClass().getSimpleName();
+    }
+
+    // 이번 동기화 범위 중 블록 확정 뒤의 출금만 본다. 거래 하나씩 따로 저장하고, 블록 충돌이면 그 거래만 다시 시도한다
+    void reconcileBlocks(Long userId, LocalDate checkFrom) {
+        Optional<LocalDateTime> confirmedAt = blockReflector.blocksConfirmedAt(userId);
+        if (confirmedAt.isEmpty()) {
+            return;
+        }
+        LocalDateTime from = checkFrom.atStartOfDay().isAfter(confirmedAt.get())
+                ? checkFrom.atStartOfDay() : confirmedAt.get();
+        for (Long transactionId : transactionRepository.findOutgoingIdsSince(userId, from)) {
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    blockReflectionService.reconcileIfNeeded(transactionId, confirmedAt.get());
+                    break;
+                } catch (OptimisticLockingFailureException e) {
+                    if (attempt >= MAX_RECONCILE_ATTEMPTS) {
+                        log.warn("블록 반영 충돌로 건너뜀: transactionId={}", transactionId);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     // 체크카드 결제가 카드·은행에 둘 다 찍혀 쓴 돈이 두 번 세지지 않게 은행 쪽 출금을 소비 제외한다
-    // TODO: 블록 반영(F-21)이 붙으면 제외한 은행 출금이 블록에서 빠졌던 금액도 되돌린다
+    // 이미 블록에 반영된 은행 출금은 이어지는 reconcileBlocks에서 되돌린다
     void excludeCheckCardDuplicates(Long userId, LocalDate from) {
         List<Transaction> duplicates = checkCardDuplicateMatcher.findBankDuplicates(
                 transactionRepository.findOutgoingSince(userId, from.atStartOfDay()));

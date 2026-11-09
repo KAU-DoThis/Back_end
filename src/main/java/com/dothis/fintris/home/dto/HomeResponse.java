@@ -60,7 +60,7 @@ public record HomeResponse(
             @Schema(description = "기본 블록 잔액(원)", example = "950000") long blockBalance,
             @Schema(description = "아침 기준 금액 = 잔액 ÷ 남은 일수, 100원 단위 내림(원)", example = "52700") long todayAvailable,
             @Schema(description = "오늘 쓴 돈(원)", example = "12300") long todaySpent,
-            @Schema(description = "오늘 남은 금액 = todayAvailable - todaySpent(원)", example = "40400") long todayRemaining,
+            @Schema(description = "오늘 남은 금액 = todayAvailable - todaySpent(원). 음수면 초과(앱은 \"N원 초과\"로 표시)", example = "40400") long todayRemaining,
             @Schema(description = "기간 남은 일수(오늘 포함)", example = "18") long remainingDays,
             @Schema(description = "BLOCK_PERIOD: 기본 블록 기간 기준 / NEXT_INCOME: 다음 입금까지 기준(설계 중)",
                     example = "BLOCK_PERIOD") String basis
@@ -77,8 +77,7 @@ public record HomeResponse(
             @Schema(description = "잔액(원)", example = "2687000") Long balance,
             @Schema(description = "이번 달 이 계좌에서 쓴 돈(원)", example = "115900") long monthSpent
     ) {
-        // TODO: monthSpent는 거래(F-21)가 붙으면 채운다
-        public static AccountItem from(LinkedAccount account) {
+        public static AccountItem of(LinkedAccount account, long monthSpent) {
             return new AccountItem(
                     account.getId(),
                     account.getInstitutionCode(),
@@ -88,7 +87,7 @@ public record HomeResponse(
                     account.getAccountName(),
                     account.getAccountNumberLast4(),
                     account.getBalance(),
-                    0
+                    monthSpent
             );
         }
     }
