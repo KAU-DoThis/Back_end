@@ -1,5 +1,6 @@
 package com.dothis.fintris.block.dto;
 
+import com.dothis.fintris.transaction.dto.TransactionResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
@@ -63,9 +64,18 @@ public record BlockDetailResponse(
             @Schema(description = "모자란 돈", example = "0") long shortage,
             @Schema(description = "납부 확인 조건") Object matchCondition,
             @Schema(description = "알림 설정") Object alerts,
-            // TODO: 거래 반영(F-21)이 붙으면 납부 기록과 제때 낸 횟수를 채운다
-            @Schema(description = "몇 달 연속 제때 냈는지. 거래 반영 전이라 null", example = "null") Integer onTimeStreak,
-            @Schema(description = "최근 납부 기록. 거래 반영 전이라 빈 배열") List<Object> recentPayments
+            @Schema(description = "최근부터 몇 달 연속 제때 냈는지. 납부 기록이 없으면 0", example = "6") int onTimeStreak,
+            @Schema(description = "최근 납부 기록 (최대 6건, 최신순)") List<Payment> recentPayments
+    ) {
+    }
+
+    @Schema(description = "고정지출 납부 기록 한 건")
+    public record Payment(
+            @Schema(example = "2026-09-25") LocalDate date,
+            @Schema(example = "김*수") String payee,
+            @Schema(description = "나간 계좌·카드", example = "국민은행 ••34") String account,
+            @Schema(example = "600000") long amount,
+            @Schema(description = "그달 납부일(없으면 말일)까지 냈으면 true", example = "true") boolean onTime
     ) {
     }
 
@@ -75,9 +85,9 @@ public record BlockDetailResponse(
             @Schema(description = "남은 비율(%) = 잔액 ÷ 월 배분액", example = "63") Integer remainingRate,
             @Schema(description = "기간 남은 일수(오늘 포함)", example = "18") long remainingDays,
             Today today,
-            // TODO: 거래 반영(F-21)이 붙으면 소진 속도 그래프와 최근 거래 5건을 채운다
-            @Schema(description = "소진 속도. 거래 반영 전이라 null", example = "null") Object burn,
-            @Schema(description = "최근 거래. 거래 반영 전이라 빈 배열") List<Object> recentTransactions
+            // TODO: 소진 속도 그래프(계획 대비 실제 누적, 예상 소진일)를 채운다
+            @Schema(description = "소진 속도. 아직 계산 전이라 null", example = "null") Object burn,
+            @Schema(description = "이 블록에 반영된 최근 거래 (최대 5건, 최신순)") List<TransactionResponse> recentTransactions
     ) {
     }
 
@@ -89,7 +99,7 @@ public record BlockDetailResponse(
 
     public record Today(
             @Schema(description = "오늘 가능 (아침 기준 금액)", example = "52700") long available,
-            @Schema(description = "오늘 쓴 돈. 거래 반영 전이라 0", example = "0") long spent,
+            @Schema(description = "오늘 이 블록에 반영된 거래 금액 합", example = "12300") long spent,
             @Schema(example = "52700") long remaining
     ) {
     }

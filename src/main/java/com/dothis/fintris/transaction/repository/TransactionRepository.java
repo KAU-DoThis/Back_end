@@ -40,6 +40,20 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             """)
     List<Long> findOutgoingIdsSince(@Param("userId") Long userId, @Param("from") LocalDateTime from);
 
+    // 블록 상세: 이 블록에 반영된 최근 거래 (사용형 최근 거래, 고정지출형 납부 기록)
+    @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
+    List<Transaction> findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId);
+
+    // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
+    @Query("""
+            select new com.dothis.fintris.transaction.repository.BlockSpent(
+              coalesce(sum(t.amount), 0), coalesce(sum(t.blockAmount), 0))
+            from Transaction t
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            """)
+    BlockSpent sumBlockSpent(@Param("blockId") Long blockId,
+                             @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     @Query("""
             select t from Transaction t
