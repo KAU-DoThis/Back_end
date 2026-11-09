@@ -16,6 +16,11 @@ spring:
         jdbc:
           time_zone: Asia/Seoul
 
+server:
+  # Caddy(HTTPS) 뒤에서 X-Forwarded-Proto·Host를 읽어 https 주소를 만든다 (Swagger 서버 주소 등)
+  # 앱 포트는 서버 안(127.0.0.1)에만 열려 있어 이 헤더는 Caddy만 보낼 수 있다
+  forward-headers-strategy: framework
+
 jwt:
   secret: ${JWT_SECRET}
   access-exp-ms: ${JWT_ACCESS_EXP_MS:3600000} # 1시간
