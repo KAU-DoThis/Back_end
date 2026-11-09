@@ -321,34 +321,59 @@ v3와 같다. 온보딩 1/3 단계(00-4)에서 은행·카드를 여러 곳 고�
 | 동기화 상태 조회 | 홈 | GET | `/linked-accounts/sync-status` |
 
 ### 연동 가능 기관 목록 `GET /institutions?type=BANK`
-`result: { "institutions": [ { "institutionCode": "0004", "name": "KB국민", "type": "BANK", "loginTypes": ["ID_PASSWORD", "CERTIFICATE"] } ] }`
+`result: { "institutions": [ { "institutionCode": "0004", "name": "국민은행", "type": "BANK", "loginTypes": ["ID_PASSWORD"] } ] }`
+비고: 공동인증서 로그인(`CERTIFICATE`)은 CODEF 유료 서비스라 지원하지 않는다. 우리은행처럼 SMS 추가 인증이 필요한 기관은 목록에서 뺀다. `type`을 생략하면 은행과 카드를 모두 준다.
 
 ### 계좌·카드 연동 `POST /linked-accounts`
 **Request body** (인증정보는 FE가 CODEF 공개키로 암호화)
 ```json
-{ "institutions": [ { "institutionCode": "0004", "type": "BANK", "loginType": "ID_PASSWORD", "loginId": "user01", "encryptedPassword": "RSA암호문..." } ] }
+{ "institutions": [ { "institutionCode": "0004", "type": "BANK", "loginType": "ID_PASSWORD", "loginId": "user01", "encryptedPassword": "RSA암호문...", "birthDate": "980225" } ] }
 ```
+- `birthDate`: 필수, 생년월일 6자리(`YYMMDD`). CODEF 보유카드 조회에 필수이고 은행 아이디 로그인에도 쓴다.
+- `encryptedPassword`: CODEF 공개키로 RSA(PKCS#1 v1.5) 암호화한 Base64 문자열. 서버는 평문을 받지 않고, 저장하지 않으며 CODEF로만 전달한다.
+- `type`이 기관코드의 종류와 다르면 그 기관은 실패로 처리한다.
+- **[TBD]** FE가 CODEF 공개키를 받는 방식 (앱에 포함 / 조회 API)
 **Response body** `201`
 ```json
 {
   "isSuccess": true, "code": "S201", "message": "연동에 성공했습니다. 거래를 가져오는 중입니다.",
   "result": {
     "linkedAccounts": [ { "linkedAccountId": 3, "institutionName": "KB국민", "type": "BANK", "accountName": "입출금", "accountNumberLast4": "1234", "balance": 2687000 } ],
-    "failed": [],
+    "failed": [ { "institutionCode": "0088", "code": "LINK_INSTITUTION_AUTH_FAILED", "message": "비밀번호가 일치하지 않습니다." } ],
     "initialSync": "IN_PROGRESS",
     "onboardingStep": "TUTORIAL"
   }
 }
 ```
-에러: `LINK_CONSENT_REQUIRED`, `LINK_INSTITUTION_AUTH_FAILED`(기관 메시지 포함, 일부만 실패하면 `failed`에 담고 201), `LINK_TIMEOUT`(30초 초과 → 백그라운드 재시도)
+에러: `LINK_CONSENT_REQUIRED`(`403`, `CODEF` 동의가 없거나 철회함), `LINK_INSTITUTION_AUTH_FAILED`(기관 메시지 포함, 일부만 실패하면 `failed`에 담고 201), `LINK_TIMEOUT`(30초 초과 → 백그라운드 재시도)
+- `failed[].message`: 기관이 거절 사유를 주면 그 문구, 아니면 에러 코드의 기본 문구
+- 기관별 실패 코드: `LINK_INSTITUTION_AUTH_FAILED`, `ACCOUNT_ALREADY_LINKED`(이미 연동했거나 같은 요청에 중복), `ACCOUNT_INSTITUTION_NOT_SUPPORTED`, `ACCOUNT_NO_ELIGIBLE_ACCOUNT`(입출금 계좌·카드 없음), `ACCOUNT_ADDITIONAL_AUTH_UNSUPPORTED`(추가 인증 필요)
+- 한 곳도 연동하지 못하면 `201` 대신 첫 실패 사유로 에러 응답
 비고: 최근 3개월 거래 수집 → 분류 → **입금원 분석(정기/추가 입금)** → 초기 블록 구성안 준비. connectedId는 응답에 넣지 않는다.
 
 ### 연동 목록 `GET /linked-accounts`
 `result: { "totalBalance": 4577000, "lastSyncedAt": "2026-10-14T09:00:00+09:00", "linkedAccounts": [ { "linkedAccountId": 3, "institutionName": "KB국민", "type": "BANK", "accountName": "입출금", "accountNumberLast4": "1234", "balance": 2687000, "isActive": true, "status": "ACTIVE", "lastSyncedAt": "..." } ] }`
 `status`: `ACTIVE` · `EXPIRED`(재연동 안내) · `ERROR`
 
-### 연동 해제 `DELETE /linked-accounts/{id}` · 수동 동기화 `POST /linked-accounts/sync` (`202`, `SKIPPED` 가능) · 동기화 상태 `GET /linked-accounts/sync-status`
+### 연동 해제 `DELETE /linked-accounts/{id}`
 v3와 같다. **[TBD]** connectedId 단위 테이블 분리 여부.
+
+### 수동 동기화 `POST /linked-accounts/sync`
+**Request body** 없음
+**Response body** `202`
+```json
+{ "isSuccess": true, "code": "S202", "message": "요청을 접수했습니다.", "result": { "syncStatus": "IN_PROGRESS", "lastSyncedAt": "2026-10-14T09:00:00" } }
+```
+- `syncStatus`: `IN_PROGRESS`(백그라운드로 시작했거나 이미 진행 중) · `SKIPPED`(모든 은행 계좌가 1시간 안에 동기화됐거나 동기화할 계좌가 없음)
+- 동기화는 요청과 따로 돌아간다. 결과는 아래 상태 조회로 확인한다.
+- 이미 진행 중일 때 다시 호출하면 새로 시작하지 않고 `IN_PROGRESS`를 돌려준다.
+- `lastSyncedAt`: 계좌 중 가장 오래된 마지막 동기화 시각. 한 번도 없으면 `null`
+
+### 동기화 상태 조회 `GET /linked-accounts/sync-status`
+`result: { "syncStatus": "DONE", "lastSyncedAt": "2026-10-14T09:00:00", "failedCount": 0 }`
+- `syncStatus`: `IDLE`(진행 중이 아님, 서버를 다시 켠 뒤에도 이 값) · `IN_PROGRESS` · `DONE` · `FAILED`(마지막 동기화에서 모든 계좌가 실패)
+- `failedCount`: 마지막 동기화에서 실패한 계좌 수. 일부만 실패하면 `DONE`이고 이 값으로 알 수 있다.
+- 진행 상태는 서버 메모리에만 있다(서버 한 대 기준). 마지막 결과 시각은 DB에 남는다.
 
 ---
 
@@ -411,13 +436,13 @@ v3와 같다. 응답의 `todayRemaining`은 홈 `dailyGuide.todayRemaining`과 �
     "counts": { "needsReview": 2, "provisional": 1 },
     "days": [
       {
-        "date": "2026-10-14", "dayTotal": -15300,
+        "date": "2026-10-14", "dayTotal": 15300,
         "items": [
           { "kind": "TRANSACTION", "transaction": { "...거래 객체" }, "notice": "카드 내역이 들어오면 자동으로 확정돼요" }
         ]
       },
       {
-        "date": "2026-10-10", "dayTotal": -30800,
+        "date": "2026-10-10", "dayTotal": 30800,
         "items": [
           { "kind": "TRANSACTION", "transaction": { "...빠른 입력 거래" }, "notice": "직접 넣은 거래가 이틀째 카드 내역에 없어요. 실제로 결제한 게 맞나요?", "reviewActions": ["KEEP", "DELETE"] }
         ]
@@ -436,6 +461,9 @@ v3와 같다. 응답의 `todayRemaining`은 홈 `dailyGuide.todayRemaining`과 �
 - `linkedAccountId`를 주면(09-2) `summary.account`에 `{ "linkedAccountId": 3, "institutionName": "KB국민", "last4": "1234" }`, 금액은 그 계좌 기준
 - `nextExpectedIncome`은 입금원 분석 결과(5장 홈과 같은 값). 없으면 `null`
 - `pendingQuestion`은 가장 최근 미답변 맥락 질문 1개
+- `dayTotal`은 그날 쓴 돈(출금 합계)을 양수로 준다. 취소·소비 제외 거래는 빼고, 입금은 넣지 않는다
+- 조건이 걸리는 범위: `days`와 `dayTotal`에는 `linkedAccountId`·`blockId`·`filter`가 모두 걸린다. `summary`와 `counts`에는 `linkedAccountId`·`blockId`만 걸리고 `filter`는 걸리지 않는다(확인 필요 탭에서도 상단 요약은 그대로)
+- 페이지는 거래 단위로 나눈다. 같은 날짜가 두 페이지에 걸칠 수 있으니 FE는 `date`가 같은 묶음을 이어 붙여 보여준다. `dayTotal`은 그 페이지에 담긴 거래가 아니라 그날 전체 기준이라 두 페이지에서 같은 값이 온다
 
 ### 거래 상세 · 카테고리 수정 · 확인 필요 처리 · 받을 돈 · 카테고리 목록 · 허용 앱 목록
 v3와 같다. 확인 필요 처리 `action`: `KEEP`(유지) · `DELETE`(삭제, 블록 잔액 복구).

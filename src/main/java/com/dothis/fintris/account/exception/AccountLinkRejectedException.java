@@ -12,7 +12,7 @@ public class AccountLinkRejectedException extends GeneralException {
     private final String institutionMessage;
 
     public AccountLinkRejectedException(String institutionCode, String institutionMessage) {
-        super(AccountErrorCode.ACCOUNT_LINK_REJECTED);
+        super(AccountErrorCode.LINK_INSTITUTION_AUTH_FAILED);
         this.institutionCode = institutionCode;
         this.institutionMessage = institutionMessage;
     }
