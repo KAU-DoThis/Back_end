@@ -43,3 +43,7 @@ ai:
 sync:
   scheduler:
     enabled: ${SYNC_SCHEDULER_ENABLED:true}
+
+# 개발 서버 테스트용 API(/dev/**). 실서비스에서는 켜지 않는다
+dev-tools:
+  enabled: ${DEV_TOOLS_ENABLED:false}
