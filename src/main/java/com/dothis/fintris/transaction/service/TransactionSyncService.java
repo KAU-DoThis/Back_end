@@ -16,16 +16,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
 
 // CODEF 호출이 오래 걸릴 수 있어 DB 트랜잭션을 걸지 않는다. 저장이 중간에 끊겨도 다음 동기화가 겹치는 구간을 중복 키로 걸러낸다
 @Slf4j
@@ -81,7 +84,7 @@ public class TransactionSyncService {
 
         Map<String, BankTransaction> byKey = keyed(account, fetched.transactions());
         Set<String> existing = byKey.isEmpty() ? Set.of()
-                : new HashSet<>(transactionRepository.findExistingExternalKeys(byKey.keySet()));
+                : new HashSet<>(transactionRepository.findExistingExternalKeys(account.getUser().getId(), byKey.keySet()));
         List<Transaction> fresh = byKey.entrySet().stream()
                 .filter(entry -> !existing.contains(entry.getKey()))
                 .map(entry -> toEntity(account, entry.getKey(), entry.getValue()))
@@ -105,11 +108,11 @@ public class TransactionSyncService {
         }
     }
 
-    // 같은 초에 일시·금액·잔액이 모두 같은 거래는 응답 순서대로 번호를 붙여 구분한다
+    // 같은 초에 키가 같은 거래는 응답 순서대로 번호를 붙여 구분한다
     private Map<String, BankTransaction> keyed(LinkedAccount account, List<BankTransaction> transactions) {
         Map<String, BankTransaction> byKey = new LinkedHashMap<>();
         for (BankTransaction transaction : transactions) {
-            String base = externalKey(account, transaction);
+            String base = bankExternalKey(account.getId(), transaction.occurredAt(), transaction.amount(), transaction.desc3());
             String key = base;
             for (int sequence = 2; byKey.containsKey(key); sequence++) {
                 key = base + "#" + sequence;
@@ -119,11 +122,16 @@ public class TransactionSyncService {
         return byKey;
     }
 
-    // CODEF 거래에는 고유 ID가 없다. 은행이 나중에 바꿀 수 있는 설명은 키에 넣지 않는다
-    private String externalKey(LinkedAccount account, BankTransaction transaction) {
-        return String.join("|", String.valueOf(account.getId()), transaction.occurredAt().format(KEY_TIME),
-                transaction.direction().name(), String.valueOf(transaction.amount()),
-                transaction.balanceAfter() == null ? "-" : String.valueOf(transaction.balanceAfter()));
+    // CODEF 거래에는 고유 ID가 없다. v5 규칙: 은행 = 계좌 + 거래일시 + 금액 + 적요(desc3)의 해시
+    static String bankExternalKey(Long linkedAccountId, LocalDateTime occurredAt, long amount, String desc3) {
+        String source = String.join("|", String.valueOf(linkedAccountId), occurredAt.format(KEY_TIME),
+                String.valueOf(amount), desc3 == null ? "" : desc3.strip());
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256을 쓸 수 없습니다.", e);
+        }
     }
 
     private Transaction toEntity(LinkedAccount account, String externalKey, BankTransaction transaction) {
@@ -141,22 +149,19 @@ public class TransactionSyncService {
                 .build();
     }
 
-    // 보낸분/받는분, 적요, 거래구분 순으로 처음 채워진 값을 쓴다
+    // v5 규칙: 은행 거래의 가맹점·수취인은 적요(desc3)만 쓴다
+    // TODO: 수취인이 사람 이름이면 마스킹(김OO)해 저장한다 — 사람 이름 판별 기준이 정해지면 붙인다
     private String merchantOrPayee(BankTransaction transaction) {
-        return Stream.of(transaction.desc1(), transaction.desc3(), transaction.desc2())
-                .filter(value -> value != null && !value.isBlank())
-                .map(value -> value.length() > MERCHANT_MAX_LENGTH ? value.substring(0, MERCHANT_MAX_LENGTH) : value)
-                .findFirst()
-                .orElse(null);
+        String value = transaction.desc3();
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        value = value.strip();
+        return value.length() > MERCHANT_MAX_LENGTH ? value.substring(0, MERCHANT_MAX_LENGTH) : value;
     }
 
-    // 응답이 과거순이라 뒤에서부터 잔액이 있는 첫 거래를 찾는다
+    // 응답이 과거순이라 마지막 거래가 가장 최신이다. 그 잔액이 없으면 앞 거래 잔액은 이미 지난 값이라 쓰지 않는다
     private Long latestBalance(List<BankTransaction> transactions) {
-        for (int i = transactions.size() - 1; i >= 0; i--) {
-            if (transactions.get(i).balanceAfter() != null) {
-                return transactions.get(i).balanceAfter();
-            }
-        }
-        return null;
+        return transactions.isEmpty() ? null : transactions.getLast().balanceAfter();
     }
 }

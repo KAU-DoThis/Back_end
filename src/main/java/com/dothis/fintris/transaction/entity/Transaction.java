@@ -1,6 +1,8 @@
 package com.dothis.fintris.transaction.entity;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.block.entity.Block;
+import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.global.entity.BaseEntity;
 import com.dothis.fintris.user.entity.User;
 import jakarta.persistence.Column;
@@ -14,16 +16,19 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-// 분류(F-20)·블록 반영(F-21) 컬럼은 해당 기능에서 추가한다
+// classify_stage는 AI 내부 단계라 BE에서 쓰게 되면 추가한다
 @Entity
-@Table(name = "transactions")
+@Table(name = "transactions", uniqueConstraints = @UniqueConstraint(
+        name = "uk_transactions_external_key", columnNames = {"user_id", "external_key"}))
 @Getter
 @SuperBuilder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -54,6 +59,9 @@ public class Transaction extends BaseEntity {
 
     private String merchantOrPayee;
 
+    @Column(length = 100)
+    private String merchantType; // 카드 가맹점 업종. 은행·현금은 null
+
     private Long balanceAfter;
 
     @Enumerated(EnumType.STRING)
@@ -64,7 +72,40 @@ public class Transaction extends BaseEntity {
     @Column(nullable = false, length = 20)
     private TransactionStatus status;
 
-    // CODEF 거래에는 고유 ID가 없어 계좌·일시·방향·금액·잔액으로 직접 만든 중복 판정 키
-    @Column(unique = true)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private Category category; // 분류 전 null
+
+    @Column(precision = 4, scale = 3)
+    private BigDecimal confidence; // 분류 신뢰도 0~1
+
+    @Column(length = 30)
+    private String contextTag; // 맥락 질문 답변 태그 (F-15)
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private ClassifiedBy classifiedBy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "block_id")
+    private Block block; // 블록 반영 전 null
+
+    @Column(nullable = false)
+    private boolean excluded; // 자기 계좌 간 이동 등 소비 집계 제외
+
+    @Column(nullable = false)
+    private boolean isCanceled;
+
+    // CODEF 중복 판정 키 (v5). 사용자 안에서 유일하다
     private String externalKey;
+
+    // 사용자가 고친 분류는 자동 분류보다 우선한다 (F-20)
+    public void changeCategoryByUser(Category category) {
+        this.category = category;
+        this.classifiedBy = ClassifiedBy.USER;
+    }
+
+    public boolean isOwnedBy(Long userId) {
+        return user.getId().equals(userId);
+    }
 }

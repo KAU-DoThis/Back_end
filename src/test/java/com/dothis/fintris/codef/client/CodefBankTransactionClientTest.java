@@ -106,6 +106,17 @@ class CodefBankTransactionClientTest {
     }
 
     @Test
+    @DisplayName("거래 후 잔액을 읽을 수 없으면 0원이 아니라 null로 둔다")
+    void unreadableBalanceAfterIsNull() {
+        givenSuccess("""
+                {"resTrHistoryList": [{"resAccountTrDate": "20261001", "resAccountTrTime": "010101",
+                 "resAccountOut": "1000", "resAccountIn": "0", "resAfterTranBalance": "N/A"}]}
+                """);
+
+        assertThat(fetch().transactions().get(0).balanceAfter()).isNull();
+    }
+
+    @Test
     @DisplayName("금액이 0이거나 일자를 읽을 수 없는 행은 버린다")
     void skipsZeroAmountAndInvalidDate() {
         givenSuccess("""
