@@ -3,6 +3,7 @@ package com.dothis.fintris.block.service;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.block.dto.BlockDetailResponse;
+import com.dothis.fintris.block.dto.BlockHistoryResponse;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockRule;
 import com.dothis.fintris.block.entity.BlockType;
@@ -23,6 +24,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
@@ -113,6 +116,24 @@ class BlockDetailServiceTest {
         assertThat(detail.recentPayments().getFirst()).isEqualTo(new BlockDetailResponse.Payment(
                 LocalDate.of(2026, 10, 24), "김*수", "국민은행 ••1234", 600_000L, true));
         assertThat(detail.recentPayments().get(2).onTime()).isFalse();
+    }
+
+    @Test
+    @DisplayName("고정지출형 블록 기록은 반영된 출금을 납부 기록으로 보여 준다")
+    void fixedHistory() {
+        Block rent = Block.builder().user(user).type(BlockType.FIXED).name("월세").balance(0L).isDefault(false)
+                .rule(new BlockRule(null, null, null, 25, 600_000L, null, null)).displayOrder(2).build();
+        ReflectionTestUtils.setField(rent, "id", 10L);
+        when(blockRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(rent));
+        when(transactionRepository.findByBlock_IdOrderByOccurredAtDescIdDesc(eq(10L), any()))
+                .thenReturn(new SliceImpl<>(List.of(reflected(rent, LocalDateTime.of(2026, 10, 25, 9, 0), 600_000, "김*수")),
+                        PageRequest.of(0, 20), true));
+
+        BlockHistoryResponse history = service.getHistory(USER_ID, 10L, 0, 20);
+
+        assertThat(history.items()).containsExactly(new BlockHistoryResponse.Item(LocalDate.of(2026, 10, 25),
+                BlockHistoryResponse.Kind.PAYMENT, "김*수 납부", "국민은행 ••1234", -600_000L));
+        assertThat(history.hasNext()).isTrue();
     }
 
     @Test

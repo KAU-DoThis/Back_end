@@ -18,6 +18,9 @@ import com.dothis.fintris.block.entity.TransferReason;
 import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.repository.BlockTransferRepository;
 import com.dothis.fintris.global.exception.GeneralException;
+import com.dothis.fintris.transaction.repository.TransactionRepository;
+import com.dothis.fintris.transaction.service.RecurringPaymentDetector;
+import com.dothis.fintris.transaction.service.RecurringPaymentDetector.RecurringPayment;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
 import com.dothis.fintris.user.entity.UserSetting;
@@ -52,35 +55,67 @@ public class BlockProposalService {
     private final LinkedAccountRepository linkedAccountRepository;
     private final UserRepository userRepository;
     private final UserSettingRepository userSettingRepository;
+    private final TransactionRepository transactionRepository;
+    private final RecurringPaymentDetector recurringPaymentDetector;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final List<String> ADDABLE_PRESETS = List.of("SAVING", "EMERGENCY", "TRAVEL");
 
-    // 구성안 조회: 아직 나누지 않은 돈으로 기본 생활비 블록 하나를 제안한다
-    // TODO: 거래 동기화(#37)가 붙으면 고정지출 탐지(3회 이상·금액 편차 10%·날짜 편차 3일), 월 평균 수입,
-    //       최근 3달 평균 지출로 구성안을 채우고 reason은 AI 문장(실패 시 템플릿)으로 바꾼다
+    // 구성안 조회: 최근 3달 거래에서 찾은 고정지출을 먼저 채우고, 남은 돈으로 기본 생활비 블록을 제안한다
+    // TODO: 월 평균 수입, 최근 3달 평균 지출로 구성안을 채우고 reason은 AI 문장(실패 시 템플릿)으로 바꾼다
     public BlockProposalResponse getProposals(Long userId) {
         long linked = linkedBalance(userId);
         long available = Math.max(0, linked
                 - blockRepository.sumBalanceByUserId(userId)
                 - waitingFundRepository.sumAmountByUserId(userId));
 
+        LocalDate today = LocalDate.now(KST);
+        List<RecurringPayment> recurring = recurringPaymentDetector.detect(transactionRepository
+                .findOutgoingSince(userId, today.minusMonths(3).withDayOfMonth(1).atStartOfDay()));
+
         List<BlockProposalResponse.Proposal> proposals = new ArrayList<>();
+        // 나눌 돈이 모자라면 앞의 고정지출부터 채운다. 합이 잔액을 넘으면 확정할 수 없기 때문
+        long left = available;
+        for (int i = 0; i < recurring.size(); i++) {
+            long balance = Math.min(recurring.get(i).payAmount(), left);
+            left -= balance;
+            proposals.add(fixedProposal(i + 1, recurring.get(i), balance));
+        }
         // 이미 기본 블록이 있으면 새로 제안하지 않는다
         if (!blockRepository.existsByUser_IdAndIsDefaultTrueAndDeletedAtIsNull(userId)) {
-            LocalDate today = LocalDate.now(KST);
-            long daily = available / today.lengthOfMonth() / 100 * 100;
+            long daily = left / today.lengthOfMonth() / 100 * 100;
             proposals.add(new BlockProposalResponse.Proposal(
                     "spending-default", BlockType.SPENDING, "생활비", "wallet", BlockColor.I, true,
-                    available, new BlockRule(available, 1, null, null, null, null, null),
+                    left, new BlockRule(left, 1, null, null, null, null, null),
                     null, null, daily, null,
-                    "아직 거래 내역이 없어 남은 잔액 전체로 시작했어요. 한 달에 쓸 만큼으로 고쳐 주세요."));
+                    recurring.isEmpty()
+                            ? "아직 거래 내역이 없어 남은 잔액 전체로 시작했어요. 한 달에 쓸 만큼으로 고쳐 주세요."
+                            : "고정지출을 빼고 남은 돈으로 시작했어요. 한 달에 쓸 만큼으로 고쳐 주세요."));
         }
         long allocated = proposals.stream().mapToLong(BlockProposalResponse.Proposal::balance).sum();
 
         return new BlockProposalResponse(
-                new BlockProposalResponse.Summary(null, 0, linked, allocated, available - allocated),
+                new BlockProposalResponse.Summary(null, recurring.size(), linked, allocated, available - allocated),
                 proposals, ADDABLE_PRESETS, false);
+    }
+
+    // 금액이 달마다 조금씩 다르면 납부액 ±10% 안의 출금을 납부로 본다 (API 명세 v4 6장 예시)
+    private BlockProposalResponse.Proposal fixedProposal(int no, RecurringPayment payment, long balance) {
+        long amount = payment.payAmount();
+        BlockRule.MatchCondition condition = payment.minAmount() == payment.maxAmount()
+                ? new BlockRule.MatchCondition(payment.payee(), BlockRule.AmountMode.EXACT, amount, amount,
+                        RecurringPaymentDetector.MAX_DAY_GAP, payment.linkedAccountId())
+                : new BlockRule.MatchCondition(payment.payee(), BlockRule.AmountMode.RANGE,
+                        amount * (100 - RecurringPaymentDetector.AMOUNT_TOLERANCE_PERCENT) / 100,
+                        amount * (100 + RecurringPaymentDetector.AMOUNT_TOLERANCE_PERCENT) / 100,
+                        RecurringPaymentDetector.MAX_DAY_GAP, payment.linkedAccountId());
+        BlockRule rule = new BlockRule(null, null, null, payment.payDay(), amount, condition,
+                new BlockRule.Alerts(true, true, false));
+        return new BlockProposalResponse.Proposal(
+                "fixed-" + no, BlockType.FIXED, payment.payee(), "receipt", BlockColor.L, false,
+                balance, rule, amount, null, 0, "TRANSACTIONS",
+                "지난 %d달 매월 %d일 전후 %s 앞으로 %,d원이 나갔어요"
+                        .formatted(payment.months(), payment.payDay(), payment.payee(), amount));
     }
 
     // [시작하기]: 고친 구성안을 잔액과 함께 한 번에 만들고, 남는 돈은 '남은 돈' 나눌 돈으로 둔다
