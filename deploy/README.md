@@ -141,6 +141,8 @@ CODEF_CLIENT_SECRET=
 CODEF_PUBLIC_KEY=
 # connectedId 암호화 키. Base64로 된 32바이트 (비어 있으면 앱이 시작되지 않는다)
 CODEF_CONNECTED_ID_KEY=
+# 자체 AI 서버(FastAPI) 주소
+AI_BASE_URL=
 ```
 
 `JWT_SECRET`, DB 비밀번호는 `openssl rand -base64 48`, `CODEF_CONNECTED_ID_KEY`는 `openssl rand -base64 32`로 만든다. 이 값들은 디스코드·카톡에 올리지 않는다.
