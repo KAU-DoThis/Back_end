@@ -44,6 +44,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     List<Transaction> findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId);
 
+    // 고정지출형 블록 기록 "납부 기록 전체 보기"
+    @EntityGraph(attributePaths = "linkedAccount")
+    Slice<Transaction> findByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId, Pageable pageable);
+
     // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
     @Query("""
             select new com.dothis.fintris.transaction.repository.BlockSpent(
