@@ -221,7 +221,7 @@ CREATE TABLE block_transfers (
     from_waiting_fund_id  BIGINT       NULL COMMENT '나눌 돈에서 배분',
     to_waiting_fund_id    BIGINT       NULL COMMENT '블록 삭제 시 나눌 돈으로 반환',
     amount                BIGINT       NOT NULL,
-    reason                VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI / ALLOCATION / SUGGESTION',
+    reason                VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI / ALLOCATION / SUGGESTION / UNDO',
     created_at            DATETIME(6)  NOT NULL COMMENT '= executed_at',
     PRIMARY KEY (block_transfer_id),
     CONSTRAINT fk_block_transfers_from      FOREIGN KEY (from_block_id)        REFERENCES blocks (block_id),
@@ -402,6 +402,34 @@ CREATE TABLE notification_app_whitelist (
     updated_at                    DATETIME(6)  NOT NULL,
     PRIMARY KEY (notification_app_whitelist_id),
     UNIQUE KEY uk_whitelist_package (package_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 9. 초불이의 방 (F-16). 대화 기록은 AI 서버 DB에 두고, 돈이 움직이는 제안만 여기 둔다
+-- ---------------------------------------------------------------------
+
+CREATE TABLE coach_proposals (
+    coach_proposal_id   BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id             BIGINT       NOT NULL,
+    from_block_id       BIGINT       NOT NULL,
+    to_block_id         BIGINT       NOT NULL,
+    amount              BIGINT       NOT NULL,
+    preview             JSON         NOT NULL COMMENT '제안 카드에 보여 준 숫자 (수락 때 블록 version 비교)',
+    status              VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / ACCEPTED / REJECTED / UNDONE (만료는 expires_at으로 계산)',
+    transfer_id         BIGINT       NULL COMMENT '수락해서 옮긴 이동',
+    result              JSON         NULL COMMENT '옮긴 뒤 잔액',
+    undo_transfer_id    BIGINT       NULL COMMENT '되돌린 이동',
+    undo_result         JSON         NULL COMMENT '되돌린 뒤 잔액',
+    expires_at          DATETIME(6)  NOT NULL,
+    created_at          DATETIME(6)  NOT NULL,
+    updated_at          DATETIME(6)  NOT NULL,
+    PRIMARY KEY (coach_proposal_id),
+    KEY idx_coach_proposals_user (user_id, created_at),
+    CONSTRAINT fk_coach_proposals_user          FOREIGN KEY (user_id)          REFERENCES users (user_id),
+    CONSTRAINT fk_coach_proposals_from_block    FOREIGN KEY (from_block_id)    REFERENCES blocks (block_id),
+    CONSTRAINT fk_coach_proposals_to_block      FOREIGN KEY (to_block_id)      REFERENCES blocks (block_id),
+    CONSTRAINT fk_coach_proposals_transfer      FOREIGN KEY (transfer_id)      REFERENCES block_transfers (block_transfer_id),
+    CONSTRAINT fk_coach_proposals_undo_transfer FOREIGN KEY (undo_transfer_id) REFERENCES block_transfers (block_transfer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
