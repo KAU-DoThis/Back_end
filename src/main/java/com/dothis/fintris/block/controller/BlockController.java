@@ -3,11 +3,18 @@ package com.dothis.fintris.block.controller;
 import com.dothis.fintris.block.dto.BlockCategoryRequest;
 import com.dothis.fintris.block.dto.BlockCreateRequest;
 import com.dothis.fintris.block.dto.BlockDeleteResponse;
+import com.dothis.fintris.block.dto.BlockDetailResponse;
+import com.dothis.fintris.block.dto.BlockHistoryResponse;
 import com.dothis.fintris.block.dto.BlockListResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
+import com.dothis.fintris.block.dto.BlockProposalConfirmRequest;
+import com.dothis.fintris.block.dto.BlockProposalConfirmResponse;
+import com.dothis.fintris.block.dto.BlockProposalResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
 import com.dothis.fintris.block.entity.BlockType;
+import com.dothis.fintris.block.service.BlockDetailService;
+import com.dothis.fintris.block.service.BlockProposalService;
 import com.dothis.fintris.block.service.BlockService;
 import com.dothis.fintris.global.api.ApiResponse;
 import com.dothis.fintris.global.api.code.GeneralSuccessCode;
@@ -35,6 +42,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class BlockController {
 
     private final BlockService blockService;
+    private final BlockProposalService blockProposalService;
+    private final BlockDetailService blockDetailService;
 
     @Operation(summary = "블록 목록 조회", description = "display_order 순, 삭제된 블록 제외")
     @GetMapping
@@ -45,12 +54,10 @@ public class BlockController {
                 new BlockListResponse(blockService.getBlocks(userId, type)));
     }
 
-    @Operation(summary = "블록 상세 조회")
+    @Operation(summary = "블록 상세 조회", description = "유형별 detail (사용형 02 / 목표형 02-1 / 고정지출형 02-2)")
     @GetMapping("/{blockId}")
-    public ApiResponse<BlockResponse> getBlock(
-            @AuthenticationPrincipal Long userId,
-            @PathVariable Long blockId) {
-        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockService.getBlock(userId, blockId));
+    public ApiResponse<BlockDetailResponse> getBlock(@AuthenticationPrincipal Long userId, @PathVariable Long blockId) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockDetailService.getDetail(userId, blockId));
     }
 
     @Operation(summary = "블록 생성",
@@ -60,6 +67,32 @@ public class BlockController {
             @AuthenticationPrincipal Long userId,
             @RequestBody @Valid BlockCreateRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, blockService.createBlock(userId, request));
+    }
+
+    @Operation(summary = "블록 기록", description = "배분·이동·만듦을 최근 순으로. 들어오면 +, 나가면 -. 납부 기록은 거래 반영 후")
+    @GetMapping("/{blockId}/history")
+    public ApiResponse<BlockHistoryResponse> getHistory(@AuthenticationPrincipal Long userId,
+                                                        @PathVariable Long blockId,
+                                                        @RequestParam(defaultValue = "0") int page,
+                                                        @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockDetailService.getHistory(userId, blockId, page, size));
+    }
+
+    @Operation(summary = "초기 블록 구성안 (온보딩 3/3)",
+            description = "확정 전엔 아무것도 저장하지 않는다. 거래 분석 전이라 지금은 남은 잔액으로 기본 생활비 블록만 제안한다")
+    @GetMapping("/proposals")
+    public ApiResponse<BlockProposalResponse> getProposals(@AuthenticationPrincipal Long userId) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockProposalService.getProposals(userId));
+    }
+
+    @Operation(summary = "초기 블록 확정 (온보딩 3/3)",
+            description = "고친 구성안을 잔액과 함께 한 번에 만든다. 보낸 순서가 표시 순서. "
+                    + "블록 합계가 연동 잔액보다 크면 BLOCK_INSUFFICIENT_FUNDS, 남는 돈은 '남은 돈' 나눌 돈")
+    @PostMapping("/proposals/confirm")
+    public ApiResponse<BlockProposalConfirmResponse> confirmProposals(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody @Valid BlockProposalConfirmRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, blockProposalService.confirm(userId, request));
     }
 
     // /order가 /{blockId}보다 먼저 매칭된다 (고정 경로 우선)

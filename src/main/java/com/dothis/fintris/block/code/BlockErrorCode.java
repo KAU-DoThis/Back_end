@@ -19,6 +19,9 @@ public enum BlockErrorCode implements BaseErrorCode {
     BLOCK_INVALID_ORDER(HttpStatus.BAD_REQUEST, "BLOCK_INVALID_ORDER", "블록 순서 목록이 현재 블록과 일치하지 않습니다."),
     BLOCK_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "BLOCK_CATEGORY_NOT_FOUND", "존재하지 않는 카테고리가 포함되어 있습니다."),
     BLOCK_CATEGORY_DUPLICATED(HttpStatus.CONFLICT, "BLOCK_CATEGORY_DUPLICATED", "이미 다른 블록에 연결된 카테고리입니다."),
+    BLOCK_INSUFFICIENT_FUNDS(HttpStatus.BAD_REQUEST, "BLOCK_INSUFFICIENT_FUNDS", "블록에 나눌 금액이 연동 잔액보다 많습니다."),
+    BLOCK_INVALID_DEFAULT(HttpStatus.BAD_REQUEST, "BLOCK_INVALID_DEFAULT", "기본 블록은 사용형 블록 하나로 정해야 합니다."),
+    BLOCK_PROPOSAL_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "BLOCK_PROPOSAL_ALREADY_CONFIRMED", "초기 블록은 이미 확정했습니다."),
     BLOCK_INSUFFICIENT_AMOUNT(HttpStatus.BAD_REQUEST, "BLOCK_INSUFFICIENT_AMOUNT", "이동할 금액이 블록 잔액보다 큽니다."),
     BLOCK_VERSION_CONFLICT(HttpStatus.CONFLICT, "BLOCK_VERSION_CONFLICT", "다른 곳에서 블록이 변경되었습니다. 새로 불러온 뒤 다시 시도해 주세요.");
 

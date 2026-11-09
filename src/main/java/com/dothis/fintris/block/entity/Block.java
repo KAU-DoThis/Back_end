@@ -110,6 +110,15 @@ public class Block extends BaseEntity {
         if (rule != null) this.rule = rule;
     }
 
+    // 잔액은 이동·배분으로만 바뀐다. 모자란지는 서비스에서 먼저 확인한다
+    public void withdraw(long amount) {
+        this.balance -= amount;
+    }
+
+    public void deposit(long amount) {
+        this.balance += amount;
+    }
+
     public void changeOrder(int displayOrder) {
         this.displayOrder = displayOrder;
     }
