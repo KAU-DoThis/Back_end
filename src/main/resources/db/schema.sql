@@ -86,6 +86,7 @@ CREATE TABLE user_settings (
     user_id             BIGINT       NOT NULL,
     tutorial_done       TINYINT(1)   NOT NULL DEFAULT 0,
     blocks_confirmed    TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '초기 블록 확정 여부. 온보딩 단계는 저장하지 않고 계산한다',
+    blocks_confirmed_at DATETIME(6)  NULL COMMENT '처음 초기 블록을 확정한 시각. 이후에 일어난 거래만 블록에 반영한다 (F-21)',
     nickname            VARCHAR(30)  NULL COMMENT 'TBD: 필요 여부',
     created_at          DATETIME(6)  NOT NULL,
     updated_at          DATETIME(6)  NOT NULL,

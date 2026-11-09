@@ -15,6 +15,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+
 @Entity
 @Table(name = "user_settings")
 @Getter
@@ -37,6 +40,9 @@ public class UserSetting extends BaseEntity {
     @Column(nullable = false)
     private boolean blocksConfirmed; // 초기 블록 확정 API가 바꾼다
 
+    // 블록은 확정할 때의 실제 잔액으로 나눠지므로, 그 전 거래(연동 때 가져온 3개월 등)는 블록에서 빼지 않는다
+    private LocalDateTime blocksConfirmedAt;
+
     @Column(length = 30)
     private String nickname; // TBD: 필요 여부
 
@@ -46,7 +52,11 @@ public class UserSetting extends BaseEntity {
         if (nickname != null) this.nickname = nickname;
     }
 
+    // 다시 확정해도 처음 시각을 유지한다. 바꾸면 이미 반영한 거래와 기준이 어긋난다
     public void confirmBlocks() {
         this.blocksConfirmed = true;
+        if (this.blocksConfirmedAt == null) {
+            this.blocksConfirmedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+        }
     }
 }
