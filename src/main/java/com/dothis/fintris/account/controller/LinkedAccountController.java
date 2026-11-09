@@ -1,7 +1,8 @@
 package com.dothis.fintris.account.controller;
 
 import com.dothis.fintris.account.dto.LinkedAccountCreateRequest;
-import com.dothis.fintris.account.dto.LinkedAccountResponse;
+import com.dothis.fintris.account.dto.LinkedAccountLinkResponse;
+import com.dothis.fintris.account.dto.LinkedAccountListResponse;
 import com.dothis.fintris.account.service.LinkedAccountService;
 import com.dothis.fintris.global.api.ApiResponse;
 import com.dothis.fintris.global.api.code.GeneralSuccessCode;
@@ -18,11 +19,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 
 @Tag(name = "Account", description = "계좌·카드 연동 (F-19)")
 @RestController
-@RequestMapping("/accounts")
+@RequestMapping("/linked-accounts")
 @RequiredArgsConstructor
 public class LinkedAccountController {
 
@@ -30,7 +30,7 @@ public class LinkedAccountController {
 
     @Operation(summary = "연동된 계좌 목록 조회", description = "해제된 계좌는 제외한다")
     @GetMapping
-    public ApiResponse<List<LinkedAccountResponse>> getLinkedAccounts(@AuthenticationPrincipal Long userId) {
+    public ApiResponse<LinkedAccountListResponse> getLinkedAccounts(@AuthenticationPrincipal Long userId) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, linkedAccountService.getLinkedAccounts(userId));
     }
 
@@ -45,7 +45,7 @@ public class LinkedAccountController {
     @Operation(summary = "금융기관 연동",
             description = "기관 아이디·비밀번호로 연동하고 보유 입출금 계좌를 가져온다. 인증정보는 저장하지 않는다")
     @PostMapping
-    public ApiResponse<List<LinkedAccountResponse>> link(
+    public ApiResponse<LinkedAccountLinkResponse> link(
             @AuthenticationPrincipal Long userId,
             @RequestBody @Valid LinkedAccountCreateRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.CREATED, linkedAccountService.link(userId, request));
