@@ -1,6 +1,7 @@
 package com.dothis.fintris.block.entity;
 
 import com.dothis.fintris.global.entity.BaseCreatedEntity;
+import com.dothis.fintris.waitingfund.entity.WaitingFund;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -17,7 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-// from/to가 null이면 미배분 잔액. 둘 다 null은 서비스에서 막는다
+// 블록·나눌 돈 사이 이동 기록. 보내는 쪽과 받는 쪽은 각각 블록이나 나눌 돈 중 하나다
 @Entity
 @Table(name = "block_transfers")
 @Getter
@@ -37,6 +38,15 @@ public class BlockTransfer extends BaseCreatedEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "to_block_id")
     private Block toBlock;
+
+    // 나눌 돈에서 블록으로(배분) 또는 블록에서 나눌 돈으로(삭제 반환) 옮긴 경우
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "from_waiting_fund_id")
+    private WaitingFund fromWaitingFund;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "to_waiting_fund_id")
+    private WaitingFund toWaitingFund;
 
     @Column(nullable = false)
     private long amount;
