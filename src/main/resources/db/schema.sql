@@ -253,6 +253,7 @@ CREATE TABLE transactions (
     context_tag         VARCHAR(30)   NULL COMMENT 'LATE_NIGHT_FOOD 답 코드 (값 목록 미정)',
     classified_by       VARCHAR(10)   NULL COMMENT 'AUTO / USER / RULE. [v5] NULL = AI 분류 전(서버 다운 등) → 다음 동기화 때 재분류 대상',
     block_id            BIGINT        NULL COMMENT '미반영 NULL',
+    block_amount        BIGINT        NULL COMMENT '반영 블록에서 실제로 뺀 금액. 블록이 0에서 멈추면 거래 금액보다 작다. 되돌릴 때 이만큼만 돌려준다 (F-21)',
     excluded            TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '소비 제외: 입금·카드대금·현금 인출·본인 계좌 이동(AI excluded 또는 BE 판정)',
     is_canceled         TINYINT(1)    NOT NULL DEFAULT 0 COMMENT 'resCancelYN=1 또는 KB 취소전표(음수). 부분취소는 amount에서 차감',
     external_key        VARCHAR(255)  NULL COMMENT '[v5] CODEF 중복 판정 키. 카드=기관+승인번호+승인일시, 은행=계좌+거래일시+금액+적요 해시. 취소 건은 같은 키로 기존 행 갱신',

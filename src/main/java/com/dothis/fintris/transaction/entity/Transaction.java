@@ -90,6 +90,8 @@ public class Transaction extends BaseEntity {
     @JoinColumn(name = "block_id")
     private Block block; // 블록 반영 전 null
 
+    private Long blockAmount; // 반영 블록에서 실제로 뺀 금액. 블록이 0에서 멈추면 거래 금액보다 작다
+
     @Column(nullable = false)
     private boolean excluded; // 자기 계좌 간 이동 등 소비 집계 제외
 
@@ -99,7 +101,18 @@ public class Transaction extends BaseEntity {
     // CODEF 중복 판정 키 (v5). 사용자 안에서 유일하다
     private String externalKey;
 
-    // TODO: 블록 반영(F-21)이 붙으면 취소·금액 변경 때 반영된 블록 잔액도 다시 계산한다
+    // 블록 잔액은 BlockReflector가 바꾸고, 거래에는 어디서 얼마를 뺐는지만 남긴다
+    public void reflectTo(Block block, long deducted) {
+        this.block = block;
+        this.blockAmount = deducted;
+    }
+
+    public void releaseBlock() {
+        this.block = null;
+        this.blockAmount = null;
+    }
+
+    // 취소·금액 변경 뒤 블록 잔액은 BlockReflector의 정리 단계에서 다시 맞춘다
     public void cancel() {
         this.isCanceled = true;
     }
