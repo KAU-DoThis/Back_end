@@ -8,6 +8,8 @@ import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.home.dto.HomeResponse;
+import com.dothis.fintris.transaction.repository.BlockSpent;
+import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.repository.UserRepository;
 import com.dothis.fintris.waitingfund.dto.WaitingFundResponse;
@@ -36,6 +38,7 @@ public class HomeService {
     private final BlockService blockService;
     private final WaitingFundService waitingFundService;
     private final UserRepository userRepository;
+    private final TransactionRepository transactionRepository;
 
     public HomeResponse getHome(Long userId) {
         if (!userRepository.existsById(userId)) {
@@ -69,7 +72,7 @@ public class HomeService {
                 totalBalance,
                 accounts.size(),
                 getDailyGuide(userId),
-                accounts.stream().map(HomeResponse.AccountItem::from).toList(),
+                accounts.stream().map(account -> HomeResponse.AccountItem.of(account, monthSpent(userId, account))).toList(),
                 null,
                 waitingFunds,
                 overAllocated,
@@ -88,7 +91,14 @@ public class HomeService {
                 .min(LocalDateTime::compareTo);
     }
 
-    // TODO: 거래 반영(F-21)이 붙으면 오늘 쓴 돈을 채우고, 아침 기준 금액은 하루 동안 고정한다. 지금은 현재 잔액 기준
+    // 이번 달 이 계좌에서 쓴 돈. 거래 목록의 spent와 같은 기준(취소·소비 제외 거래 빼고)
+    private long monthSpent(Long userId, LinkedAccount account) {
+        LocalDate monthStart = LocalDate.now(KST).withDayOfMonth(1);
+        return transactionRepository.sumTotals(userId, monthStart.atStartOfDay(),
+                monthStart.plusMonths(1).atStartOfDay(), account.getId(), null).spent();
+    }
+
+    // 블록 상세(사용형)와 같은 계산: "오늘 가능"은 아침 기준이라 오늘 기본 블록에서 뺀 돈을 되돌린 잔액으로 계산한다
     private HomeResponse.DailyGuide getDailyGuide(Long userId) {
         Block defaultBlock = blockRepository.findFirstByUser_IdAndIsDefaultTrueAndDeletedAtIsNull(userId)
                 .orElse(null);
@@ -103,8 +113,11 @@ public class HomeService {
             return null;
         }
 
-        long todayAvailable = DailyGuideCalculator.todayAvailable(defaultBlock.getBalance(), remainingDays);
-        long todaySpent = 0;
+        BlockSpent todaySpentOfBlock = transactionRepository.sumBlockSpent(defaultBlock.getId(),
+                today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        long todayAvailable = DailyGuideCalculator.todayAvailable(
+                defaultBlock.getBalance() + todaySpentOfBlock.deducted(), remainingDays);
+        long todaySpent = todaySpentOfBlock.spent();
         return new HomeResponse.DailyGuide(
                 defaultBlock.getId(),
                 defaultBlock.getName(),
