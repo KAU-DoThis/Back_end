@@ -99,6 +99,21 @@ public class Transaction extends BaseEntity {
     // CODEF 중복 판정 키 (v5). 사용자 안에서 유일하다
     private String externalKey;
 
+    // TODO: 블록 반영(F-21)이 붙으면 취소·금액 변경 때 반영된 블록 잔액도 다시 계산한다
+    public void cancel() {
+        this.isCanceled = true;
+    }
+
+    // 체크카드 중복 등 쓴 돈으로 세지 않을 거래
+    public void excludeFromSpending() {
+        this.excluded = true;
+    }
+
+    // 부분 취소로 남은 금액만 남긴다
+    public void changeAmount(long amount) {
+        this.amount = amount;
+    }
+
     // 사용자가 고친 분류는 자동 분류보다 우선한다 (F-20)
     public void changeCategoryByUser(Category category) {
         this.category = category;

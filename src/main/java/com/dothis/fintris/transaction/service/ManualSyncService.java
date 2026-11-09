@@ -1,7 +1,6 @@
 package com.dothis.fintris.transaction.service;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
-import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.transaction.dto.SyncStartResponse;
 import com.dothis.fintris.transaction.dto.SyncStatus;
@@ -43,9 +42,9 @@ public class ManualSyncService {
     }
 
     public SyncStartResponse start(Long userId) {
-        List<LinkedAccount> banks = bankAccounts(userId);
-        LocalDateTime lastSyncedAt = oldestSyncedAt(banks).orElse(null);
-        if (isFresh(banks)) {
+        List<LinkedAccount> targets = syncTargets(userId);
+        LocalDateTime lastSyncedAt = oldestSyncedAt(targets).orElse(null);
+        if (isFresh(targets)) {
             return new SyncStartResponse(SyncStatus.SKIPPED, lastSyncedAt);
         }
         // 이미 진행 중이면 새로 시작하지 않고 진행 중이라고만 알린다
@@ -70,7 +69,7 @@ public class ManualSyncService {
     public SyncStatusResponse getStatus(Long userId) {
         SyncState state = registry.get(userId);
         return new SyncStatusResponse(state.status(),
-                oldestSyncedAt(bankAccounts(userId)).orElse(null), state.failedCount());
+                oldestSyncedAt(syncTargets(userId)).orElse(null), state.failedCount());
     }
 
     private void run(Long userId) {
@@ -82,22 +81,20 @@ public class ManualSyncService {
         }
     }
 
-    private List<LinkedAccount> bankAccounts(Long userId) {
-        return linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).stream()
-                .filter(account -> account.getType() == LinkedAccountType.BANK)
-                .toList();
+    private List<LinkedAccount> syncTargets(Long userId) {
+        return linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId);
     }
 
-    // 동기화할 은행 계좌가 없거나, 모든 계좌가 1시간 안에 동기화됐으면 건너뛴다
-    private boolean isFresh(List<LinkedAccount> banks) {
+    // 동기화할 계좌·카드가 없거나, 모두 1시간 안에 동기화됐으면 건너뛴다
+    private boolean isFresh(List<LinkedAccount> accounts) {
         LocalDateTime threshold = LocalDateTime.now(KST).minus(MIN_INTERVAL);
-        return banks.stream().allMatch(account ->
+        return accounts.stream().allMatch(account ->
                 account.getLastSyncedAt() != null && account.getLastSyncedAt().isAfter(threshold));
     }
 
     // 홈·연동 목록과 같은 기준으로 가장 오래된 시각을 보여 준다
-    private Optional<LocalDateTime> oldestSyncedAt(List<LinkedAccount> banks) {
-        return banks.stream().map(LinkedAccount::getLastSyncedAt).filter(Objects::nonNull)
+    private Optional<LocalDateTime> oldestSyncedAt(List<LinkedAccount> accounts) {
+        return accounts.stream().map(LinkedAccount::getLastSyncedAt).filter(Objects::nonNull)
                 .min(LocalDateTime::compareTo);
     }
 }

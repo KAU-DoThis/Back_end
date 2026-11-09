@@ -25,6 +25,7 @@ public enum SupportedInstitution {
     HANA("0081", "KEB하나은행", LinkedAccountType.BANK),
     SHINHAN("0088", "신한은행", LinkedAccountType.BANK),
 
+    KB_CARD("0301", "KB국민카드", LinkedAccountType.CARD),
     SAMSUNG_CARD("0303", "삼성카드", LinkedAccountType.CARD),
     NH_CARD("0304", "NH카드", LinkedAccountType.CARD),
     SHINHAN_CARD("0306", "신한카드", LinkedAccountType.CARD),
