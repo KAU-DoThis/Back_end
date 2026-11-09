@@ -31,6 +31,15 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             """)
     List<Transaction> findOutgoingSince(@Param("userId") Long userId, @Param("from") LocalDateTime from);
 
+    // 블록 반영을 다시 맞출 후보. 취소·소비 제외된 거래도 되돌려야 해서 함께 고른다
+    @Query("""
+            select t.id from Transaction t
+            where t.user.id = :userId and t.occurredAt >= :from
+              and t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
+            order by t.occurredAt, t.id
+            """)
+    List<Long> findOutgoingIdsSince(@Param("userId") Long userId, @Param("from") LocalDateTime from);
+
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     @Query("""
             select t from Transaction t

@@ -26,12 +26,14 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,6 +42,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -57,6 +60,8 @@ class TransactionSyncServiceTest {
     @Mock CodefBankTransactionClient codefBankTransactionClient;
     @Mock CodefCardApprovalClient codefCardApprovalClient;
     @Mock CheckCardDuplicateMatcher checkCardDuplicateMatcher;
+    @Mock BlockReflector blockReflector;
+    @Mock BlockReflectionService blockReflectionService;
     @InjectMocks TransactionSyncService service;
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
@@ -524,5 +529,44 @@ class TransactionSyncServiceTest {
         service.syncUser(1L);
 
         verify(transactionRepository, never()).findOutgoingSince(any(), any());
+    }
+
+    @Test
+    @DisplayName("동기화 뒤 블록 확정 이후의 출금을 하나씩 블록에 맞춘다 (범위: 동기화 범위와 확정 시각 중 늦은 쪽)")
+    void reconcilesBlocksAfterSync() {
+        LocalDateTime confirmedAt = LocalDateTime.of(2026, 11, 3, 12, 0);
+        when(blockReflector.blocksConfirmedAt(1L)).thenReturn(Optional.of(confirmedAt));
+        when(transactionRepository.findOutgoingIdsSince(1L, confirmedAt)).thenReturn(List.of(11L, 12L));
+
+        service.reconcileBlocks(1L, LocalDate.of(2026, 11, 2));
+
+        verify(blockReflectionService).reconcileIfNeeded(11L, confirmedAt);
+        verify(blockReflectionService).reconcileIfNeeded(12L, confirmedAt);
+    }
+
+    @Test
+    @DisplayName("블록 충돌이 나면 그 거래만 세 번까지 다시 시도하고 다음 거래로 넘어간다")
+    void retriesOnBlockConflict() {
+        LocalDateTime confirmedAt = LocalDateTime.of(2026, 11, 1, 12, 0);
+        when(blockReflector.blocksConfirmedAt(1L)).thenReturn(Optional.of(confirmedAt));
+        LocalDateTime from = LocalDateTime.of(2026, 11, 5, 0, 0);
+        when(transactionRepository.findOutgoingIdsSince(1L, from)).thenReturn(List.of(11L, 12L));
+        when(blockReflectionService.reconcileIfNeeded(11L, confirmedAt))
+                .thenThrow(new OptimisticLockingFailureException("conflict"));
+
+        service.reconcileBlocks(1L, LocalDate.of(2026, 11, 5));
+
+        verify(blockReflectionService, times(3)).reconcileIfNeeded(11L, confirmedAt);
+        verify(blockReflectionService).reconcileIfNeeded(12L, confirmedAt);
+    }
+
+    @Test
+    @DisplayName("블록을 아직 확정하지 않은 사용자는 블록 반영을 하지 않는다")
+    void skipsReconcileBeforeBlocksConfirmed() {
+        when(blockReflector.blocksConfirmedAt(1L)).thenReturn(Optional.empty());
+
+        service.reconcileBlocks(1L, LocalDate.of(2026, 11, 5));
+
+        verify(transactionRepository, never()).findOutgoingIdsSince(any(), any());
     }
 }

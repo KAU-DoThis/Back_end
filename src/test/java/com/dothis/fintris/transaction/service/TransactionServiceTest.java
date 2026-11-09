@@ -57,6 +57,7 @@ class TransactionServiceTest {
     @Mock TransactionRepository transactionRepository;
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock CategoryRepository categoryRepository;
+    @Mock BlockReflector blockReflector;
     @InjectMocks TransactionService service;
 
     private User user(Long id) {
@@ -281,6 +282,7 @@ class TransactionServiceTest {
         assertThat(response.category()).isEqualTo(new TransactionResponse.CategoryItem(3L, "CAFE", "카페/간식"));
         assertThat(response.classifiedBy()).isEqualTo(ClassifiedBy.USER);
         assertThat(response.categoryUncertain()).isFalse();
+        verify(blockReflector).reconcile(any(Transaction.class), isNull());
     }
 
     @Test

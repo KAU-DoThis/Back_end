@@ -47,12 +47,13 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final LinkedAccountRepository linkedAccountRepository;
     private final CategoryRepository categoryRepository;
+    private final BlockReflector blockReflector;
 
     public TransactionResponse getTransaction(Long userId, Long transactionId) {
         return TransactionResponse.from(ownedTransaction(userId, transactionId));
     }
 
-    // TODO: 블록 반영(F-21)이 붙으면 바뀐 카테고리의 블록 연결에 맞춰 반영 블록과 잔액을 다시 계산한다
+    // 카테고리가 바뀌면 연결된 블록이 달라질 수 있어 블록 반영을 다시 맞춘다. 블록 충돌이면 409 BLOCK_VERSION_CONFLICT
     // TODO: 개인 사전(수정한 가맹점 → 카테고리) 저장 위치가 정해지면 함께 저장한다
     @Transactional
     public TransactionResponse changeCategory(Long userId, Long transactionId, Long categoryId) {
@@ -60,6 +61,7 @@ public class TransactionService {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> GeneralException.of(TransactionErrorCode.TRANSACTION_CATEGORY_NOT_FOUND));
         transaction.changeCategoryByUser(category);
+        blockReflector.reconcile(transaction, blockReflector.blocksConfirmedAt(userId).orElse(null));
         return TransactionResponse.from(transaction);
     }
 

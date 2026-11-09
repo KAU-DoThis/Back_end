@@ -152,4 +152,31 @@ class BlockReflectorTest {
         assertThat(living.getBalance()).isZero();
         assertThat(transaction.getBlock()).isNull();
     }
+
+    @Test
+    @DisplayName("다시 맞출 거래만 고른다: 반영 안 된 대상, 취소·소비 제외된 반영 거래, 뺀 금액보다 줄어든 거래")
+    void needsReconcile() {
+        Transaction fresh = out(CONFIRMED_AT.plusDays(1), 4_500);
+        assertThat(reflector.needsReconcile(fresh, CONFIRMED_AT)).isTrue();
+
+        reflector.reconcile(fresh, CONFIRMED_AT);
+        assertThat(reflector.needsReconcile(fresh, CONFIRMED_AT)).isFalse();
+
+        fresh.changeAmount(3_000);
+        assertThat(reflector.needsReconcile(fresh, CONFIRMED_AT)).isTrue();
+        reflector.reconcile(fresh, CONFIRMED_AT);
+
+        fresh.excludeFromSpending();
+        assertThat(reflector.needsReconcile(fresh, CONFIRMED_AT)).isTrue();
+    }
+
+    @Test
+    @DisplayName("0에서 멈춰 덜 뺀 거래는 블록에 돈이 더 들어와도 다시 맞추지 않는다")
+    void cappedTransactionStaysCapped() {
+        Transaction transaction = out(CONFIRMED_AT.plusDays(1), 50_000);
+        reflector.reconcile(transaction, CONFIRMED_AT);
+        living.deposit(100_000);
+
+        assertThat(reflector.needsReconcile(transaction, CONFIRMED_AT)).isFalse();
+    }
 }

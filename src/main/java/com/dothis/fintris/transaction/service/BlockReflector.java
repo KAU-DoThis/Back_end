@@ -40,6 +40,16 @@ public class BlockReflector {
         return userSettingRepository.findByUser_Id(userId).map(UserSetting::getBlocksConfirmedAt);
     }
 
+    // 동기화 뒤 다시 맞출 이유가 있는 거래만 고른다. 이미 맞게 반영된 거래를 다시 반영하면
+    // 그 사이 블록에 돈이 더 들어왔을 때 지난 거래가 0에서 멈춰 덜 뺀 금액까지 뒤늦게 가져가기 때문이다
+    public boolean needsReconcile(Transaction transaction, LocalDateTime blocksConfirmedAt) {
+        boolean reflected = transaction.getBlock() != null;
+        boolean target = shouldReflect(transaction, blocksConfirmedAt);
+        boolean amountShrank = reflected && transaction.getBlockAmount() != null
+                && transaction.getBlockAmount() > transaction.getAmount();
+        return reflected != target || amountShrank;
+    }
+
     // 지금 상태에 맞게 다시 맞춘다: 반영돼 있으면 되돌리고, 반영 대상이면 다시 반영한다
     // (카테고리 수정·취소·부분취소·소비 제외 뒤에 부른다). 반영 블록이나 뺀 금액이 바뀌었으면 true
     public boolean reconcile(Transaction transaction, LocalDateTime blocksConfirmedAt) {
