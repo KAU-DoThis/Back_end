@@ -2,6 +2,12 @@
 -- FINTRIS P0 스키마 (MySQL 8.x)
 -- 기준: FINTRIS_개발_컨텍스트_v3.md 8장 (기능 명세서 F-01~F-26)
 -- 작성: 2026-10-13
+-- 수정: 2026-11-04 (v5) BE↔AI 거래 분류 연동 명세 반영 — [v5] 표시
+--   transactions: merchant_type 추가, external_key 규칙·유니크 범위(user_id), 미분류 조회 인덱스
+--   context_questions: user_id·options·status·sent_at 추가, type EASY_PAY→UNKNOWN_ITEM, 거래당 1개
+--   context_rules: question_type·category_id 추가, tag NULL 허용
+--
+-- 빈 DB용이다. 이미 만들어진 DB는 db/upgrade/ 아래 증분 SQL을 순서대로 실행한다
 --
 -- 규칙
 --  - PK: BIGINT AUTO_INCREMENT, 이름은 {단수}_id
@@ -140,6 +146,7 @@ CREATE TABLE blocks (
     type                VARCHAR(20)  NOT NULL COMMENT 'SPENDING / GOAL / FIXED',
     name                VARCHAR(50)  NOT NULL,
     icon                VARCHAR(50)  NULL,
+    color               VARCHAR(1)   NULL COMMENT 'I / O / T / S / Z / J / L. NULL이면 유형별 기본색',
     balance             BIGINT       NOT NULL DEFAULT 0,
     is_default          TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '기본 사용형 블록, 삭제 불가',
     target_amount       BIGINT       NULL COMMENT '목표형만',
@@ -184,17 +191,43 @@ CREATE TABLE block_status_logs (
     CONSTRAINT fk_block_status_logs_block FOREIGN KEY (block_id) REFERENCES blocks (block_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- from/to NULL = 미배분. 둘 다 NULL은 서비스에서 막는다
+-- 나눌 돈(대기 자금, API 명세 v4 6-1장). 블록 잔액 합 + 대기 자금 합 = 연동 계좌 실제 잔액
+CREATE TABLE waiting_funds (
+    waiting_fund_id       BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id               BIGINT       NOT NULL,
+    source                VARCHAR(20)  NOT NULL COMMENT 'SAVING / REGULAR_INCOME / EXTRA_INCOME / OTHER',
+    label                 VARCHAR(50)  NOT NULL COMMENT '홈 카드 제목 (절약분, 정기 입금 · 월급 등)',
+    description           VARCHAR(100) NULL COMMENT '9월 절약 확정, 10월 12일 입금 등',
+    amount                BIGINT       NOT NULL COMMENT '남은 금액. 0이면 목록에서 빠짐',
+    original_amount       BIGINT       NOT NULL,
+    source_transaction_id BIGINT       NULL COMMENT '입금 거래 (FK는 거래 기능이 붙을 때 추가)',
+    saving_goal_id        BIGINT       NULL COMMENT '절약 목표 확정 (FK는 절약 목표 기능이 붙을 때 추가)',
+    income_source_id      BIGINT       NULL COMMENT '입금원 (income_sources 테이블 추가 후 FK)',
+    breakdown             JSON         NULL COMMENT '절약분 카테고리별 내역 [{label, amount}]',
+    cleared_at            DATETIME(6)  NULL COMMENT '다 나눈 시각',
+    version               BIGINT       NOT NULL DEFAULT 0 COMMENT '@Version 낙관적 잠금',
+    created_at            DATETIME(6)  NOT NULL,
+    updated_at            DATETIME(6)  NOT NULL,
+    PRIMARY KEY (waiting_fund_id),
+    KEY idx_waiting_funds_user_amount (user_id, amount),
+    CONSTRAINT fk_waiting_funds_user FOREIGN KEY (user_id) REFERENCES users (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 보내는 쪽(from)과 받는 쪽(to)은 각각 블록이나 나눌 돈 중 하나. 둘 다 없는 경우는 서비스에서 막는다
 CREATE TABLE block_transfers (
-    block_transfer_id   BIGINT       NOT NULL AUTO_INCREMENT,
-    from_block_id       BIGINT       NULL,
-    to_block_id         BIGINT       NULL,
-    amount              BIGINT       NOT NULL,
-    reason              VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI',
-    created_at          DATETIME(6)  NOT NULL COMMENT '= executed_at',
+    block_transfer_id     BIGINT       NOT NULL AUTO_INCREMENT,
+    from_block_id         BIGINT       NULL,
+    to_block_id           BIGINT       NULL,
+    from_waiting_fund_id  BIGINT       NULL COMMENT '나눌 돈에서 배분',
+    to_waiting_fund_id    BIGINT       NULL COMMENT '블록 삭제 시 나눌 돈으로 반환',
+    amount                BIGINT       NOT NULL,
+    reason                VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI / ALLOCATION / SUGGESTION',
+    created_at            DATETIME(6)  NOT NULL COMMENT '= executed_at',
     PRIMARY KEY (block_transfer_id),
-    CONSTRAINT fk_block_transfers_from FOREIGN KEY (from_block_id) REFERENCES blocks (block_id),
-    CONSTRAINT fk_block_transfers_to   FOREIGN KEY (to_block_id)   REFERENCES blocks (block_id)
+    CONSTRAINT fk_block_transfers_from      FOREIGN KEY (from_block_id)        REFERENCES blocks (block_id),
+    CONSTRAINT fk_block_transfers_to        FOREIGN KEY (to_block_id)          REFERENCES blocks (block_id),
+    CONSTRAINT fk_block_transfers_from_fund FOREIGN KEY (from_waiting_fund_id) REFERENCES waiting_funds (waiting_fund_id),
+    CONSTRAINT fk_block_transfers_to_fund   FOREIGN KEY (to_waiting_fund_id)   REFERENCES waiting_funds (waiting_fund_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -208,25 +241,27 @@ CREATE TABLE transactions (
     occurred_at         DATETIME(6)   NOT NULL,
     amount              BIGINT        NOT NULL,
     direction           VARCHAR(5)    NOT NULL COMMENT 'IN / OUT',
-    merchant_or_payee   VARCHAR(255)  NULL COMMENT '수취인은 마스킹(김OO)',
-    balance_after       BIGINT        NULL,
+    merchant_or_payee   VARCHAR(255)  NULL COMMENT '카드=가맹점명(resMemberStoreName), 은행=적요(resAccountDesc3)만. 수취인은 마스킹(김OO)',
+    merchant_type       VARCHAR(100)  NULL COMMENT '[v5] 카드 가맹점 업종(resMemberStoreType). 은행·현금은 NULL. AI 재분류 때 다시 보냄',
+    balance_after       BIGINT        NULL COMMENT 'AI로 보내지 않음',
     source              VARCHAR(20)   NOT NULL COMMENT 'CODEF / NOTIFICATION / MANUAL',
-    status              VARCHAR(20)   NOT NULL COMMENT 'PROVISIONAL / CONFIRMED / NEEDS_REVIEW',
-    category_id         BIGINT        NULL COMMENT '분류 전 NULL',
-    classify_stage      TINYINT       NULL COMMENT '1~4',
-    confidence          DECIMAL(4,3)  NULL,
-    context_tag         VARCHAR(30)   NULL,
-    classified_by       VARCHAR(10)   NULL COMMENT 'AUTO / USER / RULE',
+    status              VARCHAR(20)   NOT NULL COMMENT 'PROVISIONAL(BE만) / CONFIRMED / NEEDS_REVIEW',
+    category_id         BIGINT        NULL COMMENT '분류 전·질문 대기·카테고리 없는 거래(입금·카드대금·현금 인출)는 NULL',
+    classify_stage      TINYINT       NULL COMMENT '1 사전·규칙 / 2 퍼지 / 3 임베딩 / 4 Jeff. 못 정하면 NULL',
+    confidence          DECIMAL(4,3)  NULL COMMENT '0~1',
+    context_tag         VARCHAR(30)   NULL COMMENT 'LATE_NIGHT_FOOD 답 코드 (값 목록 미정)',
+    classified_by       VARCHAR(10)   NULL COMMENT 'AUTO / USER / RULE. [v5] NULL = AI 분류 전(서버 다운 등) → 다음 동기화 때 재분류 대상',
     block_id            BIGINT        NULL COMMENT '미반영 NULL',
-    excluded            TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '자기 계좌 간 이동 등 소비 제외',
-    is_canceled         TINYINT(1)    NOT NULL DEFAULT 0,
-    external_key        VARCHAR(255)  NULL COMMENT 'TBD: CODEF 중복 판정 키',
+    excluded            TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '소비 제외: 입금·카드대금·현금 인출·본인 계좌 이동(AI excluded 또는 BE 판정)',
+    is_canceled         TINYINT(1)    NOT NULL DEFAULT 0 COMMENT 'resCancelYN=1 또는 KB 취소전표(음수). 부분취소는 amount에서 차감',
+    external_key        VARCHAR(255)  NULL COMMENT '[v5] CODEF 중복 판정 키. 카드=기관+승인번호+승인일시, 은행=계좌+거래일시+금액+적요 해시. 취소 건은 같은 키로 기존 행 갱신',
     created_at          DATETIME(6)   NOT NULL,
     updated_at          DATETIME(6)   NOT NULL,
     PRIMARY KEY (transaction_id),
-    UNIQUE KEY uk_transactions_external_key (external_key),
+    UNIQUE KEY uk_transactions_external_key (user_id, external_key),
     KEY idx_transactions_user_occurred (user_id, occurred_at),
     KEY idx_transactions_user_status (user_id, status),
+    KEY idx_transactions_unclassified (user_id, classified_by),
     CONSTRAINT fk_transactions_user     FOREIGN KEY (user_id)           REFERENCES users (user_id),
     CONSTRAINT fk_transactions_account  FOREIGN KEY (linked_account_id) REFERENCES linked_accounts (linked_account_id),
     CONSTRAINT fk_transactions_category FOREIGN KEY (category_id)       REFERENCES categories (category_id),
@@ -275,26 +310,39 @@ CREATE TABLE saving_goals (
 -- 7. 맥락 질문 (F-15)
 -- ---------------------------------------------------------------------
 
+-- "묻지 않기" 규칙. AI는 이 목록을 모르고, BE가 AI 응답(needsQuestion=true)을 받은 뒤 여기 맞으면 질문 대신 바로 적용한다
 CREATE TABLE context_rules (
     context_rule_id     BIGINT       NOT NULL AUTO_INCREMENT,
     user_id             BIGINT       NOT NULL,
+    question_type       VARCHAR(30)  NOT NULL COMMENT '[v5] 어떤 질문을 대신하는 규칙인지 (UNKNOWN_ITEM / PERSONAL_TRANSFER / LOW_CONFIDENCE / LATE_NIGHT_FOOD)',
     `match`             JSON         NOT NULL COMMENT '가맹점+시간대 또는 수취인',
-    tag                 VARCHAR(30)  NOT NULL,
+    category_id         BIGINT       NULL COMMENT '[v5] 적용할 카테고리 (LATE_NIGHT_FOOD는 NULL)',
+    tag                 VARCHAR(30)  NULL COMMENT '[v5 NULL 허용] 적용할 context_tag (LATE_NIGHT_FOOD만)',
     created_at          DATETIME(6)  NOT NULL,
     PRIMARY KEY (context_rule_id),
-    CONSTRAINT fk_context_rules_user FOREIGN KEY (user_id) REFERENCES users (user_id)
+    KEY idx_context_rules_user_type (user_id, question_type),
+    CONSTRAINT fk_context_rules_user     FOREIGN KEY (user_id)     REFERENCES users (user_id),
+    CONSTRAINT fk_context_rules_category FOREIGN KEY (category_id) REFERENCES categories (category_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 거래 1건당 질문 최대 1개 (AI 응답의 questionType이 하나라서)
 CREATE TABLE context_questions (
     context_question_id BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id             BIGINT       NOT NULL COMMENT '[v5] 하루 3건 제한 집계용',
     transaction_id      BIGINT       NOT NULL,
-    type                VARCHAR(30)  NOT NULL COMMENT 'LATE_NIGHT_FOOD / EASY_PAY / PERSONAL_TRANSFER / LOW_CONFIDENCE',
-    answer_tag          VARCHAR(30)  NULL,
+    type                VARCHAR(30)  NOT NULL COMMENT '[v5] UNKNOWN_ITEM(구 EASY_PAY) / PERSONAL_TRANSFER / LOW_CONFIDENCE / LATE_NIGHT_FOOD',
+    options             JSON         NOT NULL COMMENT '[v5] AI questionOptions 그대로. 맨 앞이 가장 그럴듯한 답, 최대 5개. "직접 적기"는 FE가 붙임',
+    status              VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '[v5] PENDING(발송 대기) / SENT / ANSWERED / EXPIRED',
+    sent_at             DATETIME(6)  NULL COMMENT '[v5] 푸시 발송 시각. 23~07시는 보류 후 아침에 발송',
+    answer_tag          VARCHAR(30)  NULL COMMENT '고른 답 코드: 카테고리 코드 또는 context_tag 값',
     answered_at         DATETIME(6)  NULL,
-    context_rule_id     BIGINT       NULL,
+    context_rule_id     BIGINT       NULL COMMENT '답하면서 "다음부터 자동 적용"을 고른 경우 만든 규칙',
     created_at          DATETIME(6)  NOT NULL,
     updated_at          DATETIME(6)  NOT NULL,
     PRIMARY KEY (context_question_id),
+    UNIQUE KEY uk_context_questions_transaction (transaction_id),
+    KEY idx_context_questions_user_status (user_id, status, sent_at),
+    CONSTRAINT fk_context_questions_user        FOREIGN KEY (user_id)         REFERENCES users (user_id),
     CONSTRAINT fk_context_questions_transaction FOREIGN KEY (transaction_id)  REFERENCES transactions (transaction_id),
     CONSTRAINT fk_context_questions_rule        FOREIGN KEY (context_rule_id) REFERENCES context_rules (context_rule_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

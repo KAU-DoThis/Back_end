@@ -14,7 +14,8 @@ public enum AccountErrorCode implements BaseErrorCode {
     ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "ACCOUNT_ALREADY_LINKED", "이미 연동된 금융기관입니다."),
     ACCOUNT_ADDITIONAL_AUTH_UNSUPPORTED(HttpStatus.BAD_REQUEST, "ACCOUNT_ADDITIONAL_AUTH_UNSUPPORTED", "추가 인증이 필요한 금융기관은 아직 연동할 수 없습니다."),
     ACCOUNT_NO_ELIGIBLE_ACCOUNT(HttpStatus.BAD_REQUEST, "ACCOUNT_NO_ELIGIBLE_ACCOUNT", "연동할 수 있는 입출금 계좌 또는 카드가 없습니다."),
-    ACCOUNT_LINK_REJECTED(HttpStatus.BAD_REQUEST, "ACCOUNT_LINK_REJECTED", "금융기관 인증에 실패했습니다.");
+    LINK_CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "LINK_CONSENT_REQUIRED", "금융거래정보 조회(CODEF)에 동의해야 연동할 수 있습니다."),
+    LINK_INSTITUTION_AUTH_FAILED(HttpStatus.BAD_REQUEST, "LINK_INSTITUTION_AUTH_FAILED", "금융기관 인증에 실패했습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

@@ -1,5 +1,6 @@
 package com.dothis.fintris.user.service;
 
+import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.code.ConsentErrorCode;
 import com.dothis.fintris.user.code.UserErrorCode;
@@ -44,6 +45,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final ConsentRepository consentRepository;
     private final UserSettingRepository userSettingRepository;
+    private final LinkedAccountRepository linkedAccountRepository;
 
     public ConsentItemListResponse getConsentItems() {
         List<ConsentItemResponse> items = Arrays.stream(ConsentItem.values())
@@ -187,9 +189,9 @@ public class UserService {
                         .build()));
     }
 
-    // TODO: 계좌 연동(F-19)이 머지되면 활성 연동 계좌가 있는지 확인한다. 지금은 false 고정
+    // 해제하지 않은 계좌·카드가 하나라도 있으면 연동한 것으로 본다
     private boolean hasLinkedAccount(Long userId) {
-        return false;
+        return !linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).isEmpty();
     }
 
     // 항목별 가장 최근 행. EnumMap이라 항목 정의 순서대로 나온다

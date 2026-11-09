@@ -1,5 +1,6 @@
 package com.dothis.fintris.block.dto;
 
+import com.dothis.fintris.block.entity.BlockColor;
 import com.dothis.fintris.block.entity.BlockRule;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Pattern;
@@ -16,6 +17,9 @@ public record BlockUpdateRequest(
         @Schema(description = "아이콘 키", example = "airplane")
         @Size(max = 50) String icon,
 
+        @Schema(description = "블록 색 코드 I·O·T·S·Z·J·L", example = "L")
+        BlockColor color,
+
         @Schema(description = "목표 금액(원)", example = "800000")
         Long targetAmount,
 
@@ -25,7 +29,11 @@ public record BlockUpdateRequest(
         @Schema(description = "기간 끝 또는 기한", example = "2027-03-31")
         LocalDate dueDate,
 
-        @Schema(description = "규칙. 보내면 통째로 바뀐다")
-        BlockRule rule
+        @Schema(description = "규칙. 보낸 키만 바뀐다 (matchCondition은 통째로, alerts는 키별로)")
+        BlockRule rule,
+
+        @Schema(description = "조회한 블록의 version. 그 사이 바뀌었으면 409 BLOCK_VERSION_CONFLICT. 비우면 검사하지 않는다",
+                example = "7")
+        Long version
 ) {
 }

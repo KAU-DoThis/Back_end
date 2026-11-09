@@ -3,11 +3,13 @@ package com.dothis.fintris.block.service;
 import com.dothis.fintris.block.code.BlockErrorCode;
 import com.dothis.fintris.block.dto.BlockCategoryRequest;
 import com.dothis.fintris.block.dto.BlockCreateRequest;
+import com.dothis.fintris.block.dto.BlockDeleteResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockCategory;
+import com.dothis.fintris.block.entity.BlockColor;
 import com.dothis.fintris.block.entity.BlockCreatedBy;
 import com.dothis.fintris.block.entity.BlockRule;
 import com.dothis.fintris.block.entity.BlockStatus;
@@ -23,6 +25,10 @@ import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
 import com.dothis.fintris.user.repository.UserRepository;
+import com.dothis.fintris.waitingfund.dto.WaitingFundResponse;
+import com.dothis.fintris.waitingfund.entity.WaitingFund;
+import com.dothis.fintris.waitingfund.entity.WaitingFundSource;
+import com.dothis.fintris.waitingfund.repository.WaitingFundRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +57,7 @@ public class BlockService {
     private final BlockTransferRepository blockTransferRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
+    private final WaitingFundRepository waitingFundRepository;
 
     public List<BlockResponse> getBlocks(Long userId, BlockType type) {
         List<Block> blocks = (type == null)
@@ -68,16 +75,23 @@ public class BlockService {
                 .toList();
     }
 
-    public BlockResponse getBlock(Long userId, Long blockId) {
-        Block block = findOwnedBlock(userId, blockId);
-        return toResponse(block);
-    }
-
     @Transactional
     public BlockResponse createBlock(Long userId, BlockCreateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> GeneralException.of(UserErrorCode.USER_NOT_FOUND));
 
+        // 새 블록은 맨 뒤에 둔다
+        int nextOrder = blockRepository.findTopByUser_IdAndDeletedAtIsNullOrderByDisplayOrderDesc(userId)
+                .map(last -> last.getDisplayOrder() + 1)
+                .orElse(0);
+
+        Block block = newBlock(user, request, 0, nextOrder, false, BlockCreatedBy.USER);
+        return BlockResponse.of(blockRepository.save(block), List.of());
+    }
+
+    // 블록 생성 규칙(기본값·검증)을 한곳에 둔다. 일반 생성과 초기 블록 확정(04)이 같이 쓴다
+    Block newBlock(User user, BlockCreateRequest request, long balance, int displayOrder,
+                   boolean isDefault, BlockCreatedBy createdBy) {
         LocalDate today = LocalDate.now(KST);
         LocalDate startDate = (request.startDate() != null) ? request.startDate() : today;
         LocalDate dueDate = request.dueDate();
@@ -90,47 +104,56 @@ public class BlockService {
         validateNewDueDate(dueDate, today);
         validate(request.type(), request.targetAmount(), startDate, dueDate, request.rule());
 
-        // 새 블록은 맨 뒤에 둔다
-        int nextOrder = blockRepository.findTopByUser_IdAndDeletedAtIsNullOrderByDisplayOrderDesc(userId)
-                .map(last -> last.getDisplayOrder() + 1)
-                .orElse(0);
+        // 목표형은 월 확보 금액을 비우면 권장값(남은 금액 ÷ 남은 개월, 올림)으로 채운다 (F-07)
+        BlockRule rule = request.rule();
+        if (request.type() == BlockType.GOAL && (rule == null || rule.monthlyTarget() == null)) {
+            long recommended = BlockCalculator.recommendedMonthlyTarget(request.targetAmount(), balance, today, dueDate);
+            rule = ((rule != null) ? rule : BlockRule.empty()).withMonthlyTarget(recommended);
+        }
 
-        Block block = Block.builder()
+        return Block.builder()
                 .user(user)
                 .type(request.type())
                 .name(request.name())
                 .icon(request.icon())
+                .color(request.color() != null ? request.color() : BlockColor.defaultFor(request.type()))
+                .balance(balance)
+                .isDefault(isDefault)
                 .targetAmount(request.targetAmount())
                 .startDate(startDate)
                 .dueDate(dueDate)
-                .rule(request.rule())
-                .status(BlockStatus.SAFE) // 상태 판정은 S3 이후. 지금은 SAFE 고정
-                .createdBy(BlockCreatedBy.USER)
-                .displayOrder(nextOrder)
+                .rule(rule)
+                .status(BlockStatus.SAFE) // 상태 판정은 S4(F-11). 지금은 SAFE 고정
+                .createdBy(createdBy)
+                .displayOrder(displayOrder)
                 .build();
-
-        return BlockResponse.of(blockRepository.save(block), List.of());
     }
 
     @Transactional
     public BlockResponse updateBlock(Long userId, Long blockId, BlockUpdateRequest request) {
         Block block = findOwnedBlock(userId, blockId);
+        // 조회한 뒤 다른 곳에서 바뀌었으면 덮어쓰지 않는다
+        if (request.version() != null && !request.version().equals(block.getVersion())) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_VERSION_CONFLICT);
+        }
 
-        // 바뀐 뒤의 값 기준으로 검증한다
+        // 바뀐 뒤의 값 기준으로 검증한다. rule은 보낸 키만 합친다
         Long targetAmount = (request.targetAmount() != null) ? request.targetAmount() : block.getTargetAmount();
         LocalDate startDate = (request.startDate() != null) ? request.startDate() : block.getStartDate();
         LocalDate dueDate = (request.dueDate() != null) ? request.dueDate() : block.getDueDate();
-        BlockRule rule = (request.rule() != null) ? request.rule() : block.getRule();
+        BlockRule rule = (block.getRule() != null) ? block.getRule().mergedWith(request.rule()) : request.rule();
         validateNewDueDate(request.dueDate(), LocalDate.now(KST));
         validate(block.getType(), targetAmount, startDate, dueDate, rule);
 
-        block.update(request.name(), request.icon(), request.targetAmount(),
-                request.startDate(), request.dueDate(), request.rule());
+        block.update(request.name(), request.icon(), request.color(), request.targetAmount(),
+                request.startDate(), request.dueDate(), rule);
+        // 응답에 올라간 version을 담으려면 먼저 저장해야 한다. 안 그러면 FE가 옛 version으로 다음 수정을 보낸다
+        blockRepository.flush();
         return toResponse(block);
     }
 
     @Transactional
-    public void deleteBlock(Long userId, Long blockId) {
+    public BlockDeleteResponse deleteBlock(Long userId, Long blockId) {
         Block block = findOwnedBlock(userId, blockId);
         if (block.isDefault()) {
             throw GeneralException.of(BlockErrorCode.BLOCK_DEFAULT_UNDELETABLE);
@@ -138,16 +161,26 @@ public class BlockService {
 
         blockCategoryRepository.deleteAllByBlockId(blockId);
         long returned = block.delete(LocalDateTime.now(KST));
-
-        // 남은 잔액은 미배분(to = null)으로 돌아간 것으로 기록한다
-        if (returned > 0) {
-            blockTransferRepository.save(BlockTransfer.builder()
-                    .fromBlock(block)
-                    .toBlock(null)
-                    .amount(returned)
-                    .reason(TransferReason.MANUAL)
-                    .build());
+        if (returned == 0) {
+            return new BlockDeleteResponse(blockId, 0, null);
         }
+
+        // 남은 잔액은 "남은 돈" 나눌 돈으로 옮겨 불변식(블록 합 + 나눌 돈 합 = 실제 잔액)을 지킨다 (v4 6장)
+        WaitingFund fund = waitingFundRepository.save(WaitingFund.builder()
+                .user(block.getUser())
+                .source(WaitingFundSource.OTHER)
+                .label(WaitingFundSource.OTHER.getDefaultLabel())
+                .description("'" + block.getName() + "' 블록에서 돌아온 돈")
+                .amount(returned)
+                .originalAmount(returned)
+                .build());
+        blockTransferRepository.save(BlockTransfer.builder()
+                .fromBlock(block)
+                .toWaitingFund(fund)
+                .amount(returned)
+                .reason(TransferReason.MANUAL)
+                .build());
+        return new BlockDeleteResponse(blockId, returned, WaitingFundResponse.from(fund));
     }
 
     @Transactional
@@ -166,6 +199,7 @@ public class BlockService {
         for (int i = 0; i < ids.size(); i++) {
             blockById.get(ids.get(i)).changeOrder(i);
         }
+        blockRepository.flush();
         return getBlocks(userId, null);
     }
 
@@ -227,19 +261,19 @@ public class BlockService {
     private void validate(BlockType type, Long targetAmount, LocalDate startDate,
                           LocalDate dueDate, BlockRule rule) {
         if (targetAmount != null && targetAmount <= 0) {
-            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET);
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET_AMOUNT);
         }
         if (dueDate != null && dueDate.isBefore(startDate)) {
             throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_DUE_DATE);
         }
-        if (rule != null && rule.payDay() != null && (rule.payDay() < 1 || rule.payDay() > 31)) {
-            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_PAY_DAY);
+        if (rule != null) {
+            validateRule(rule);
         }
 
         switch (type) {
             case GOAL -> {
                 if (targetAmount == null) {
-                    throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET);
+                    throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_TARGET_AMOUNT);
                 }
                 if (dueDate == null) {
                     throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_DUE_DATE);
@@ -256,5 +290,31 @@ public class BlockService {
             case SPENDING -> {
             }
         }
+    }
+
+    // 규칙 값의 범위만 본다. 유형별 필수 값은 validate에서 본다
+    private void validateRule(BlockRule rule) {
+        if (rule.payDay() != null && (rule.payDay() < 1 || rule.payDay() > 31)) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_PAY_DAY);
+        }
+        if (rule.startDay() != null && (rule.startDay() < 1 || rule.startDay() > 31)) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+        }
+        if (isNotPositive(rule.monthlyAmount()) || (rule.monthlyTarget() != null && rule.monthlyTarget() < 0)) {
+            throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+        }
+        BlockRule.MatchCondition match = rule.matchCondition();
+        if (match != null) {
+            if (match.dayWindow() != null && match.dayWindow() < 0) {
+                throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+            }
+            if (match.minAmount() != null && match.maxAmount() != null && match.minAmount() > match.maxAmount()) {
+                throw GeneralException.of(BlockErrorCode.BLOCK_INVALID_RULE);
+            }
+        }
+    }
+
+    private boolean isNotPositive(Long amount) {
+        return amount != null && amount <= 0;
     }
 }

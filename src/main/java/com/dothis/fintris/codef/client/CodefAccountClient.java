@@ -2,7 +2,6 @@ package com.dothis.fintris.codef.client;
 
 import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.codef.client.CodefApiClient.CodefResponse;
-import com.dothis.fintris.global.crypto.RsaEncryptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -20,11 +19,10 @@ public class CodefAccountClient {
     private static final String DELETE_PATH = "/v1/account/delete";
 
     private final CodefApiClient codefApiClient;
-    private final RsaEncryptor rsaEncryptor;
 
-    // connectedId가 없으면 새로 발급(create)하고, 있으면 그 connectedId에 기관을 추가(add)한다
+    // connectedId가 없으면 새로 발급(create)하고, 있으면 그 connectedId에 기관을 추가(add)한다. 비밀번호는 CODEF 공개키로 암호화된 값을 받는다
     public CodefAccountResult register(String connectedId, String organization, LinkedAccountType type,
-                                       String loginId, String password, String birthDate) {
+                                       String loginId, String encryptedPassword, String birthDate) {
         Map<String, Object> account = new LinkedHashMap<>();
         account.put("countryCode", "KR");
         account.put("businessType", type == LinkedAccountType.BANK ? "BK" : "CD");
@@ -32,7 +30,7 @@ public class CodefAccountClient {
         account.put("organization", organization);
         account.put("loginType", "1"); // 아이디·비밀번호 로그인만 지원한다
         account.put("id", loginId);
-        account.put("password", rsaEncryptor.encrypt(password));
+        account.put("password", encryptedPassword);
         account.put("birthDate", birthDate);
 
         Map<String, Object> body = new LinkedHashMap<>();
