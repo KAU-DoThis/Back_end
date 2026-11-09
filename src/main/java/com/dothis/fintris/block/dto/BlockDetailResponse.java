@@ -117,7 +117,7 @@ public record BlockDetailResponse(
     public record Today(
             @Schema(description = "오늘 가능 (아침 기준 금액)", example = "52700") long available,
             @Schema(description = "오늘 이 블록에 반영된 거래 금액 합", example = "12300") long spent,
-            @Schema(example = "52700") long remaining
+            @Schema(description = "available - spent. 음수면 초과(앱은 \"N원 초과\"로 표시)", example = "40400") long remaining
     ) {
     }
 }
