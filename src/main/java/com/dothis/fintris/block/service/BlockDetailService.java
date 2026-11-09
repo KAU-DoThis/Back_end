@@ -151,7 +151,7 @@ public class BlockDetailService {
                 BlockCalculator.fillRate(block.getBalance(), monthlyAmount),
                 days,
                 new BlockDetailResponse.Today(available, spent, available - spent),
-                null,
+                burn(block, monthlyAmount, today),
                 transactionRepository.findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(block.getId()).stream()
                         .limit(RECENT_TRANSACTIONS).map(TransactionResponse::from).toList());
         return new BlockDetailResponse(response, null, List.of(), ruleText(block), detail);
@@ -191,6 +191,18 @@ public class BlockDetailService {
             }
         }
         return points;
+    }
+
+    private BlockDetailResponse.Burn burn(Block block, Long monthlyAmount, LocalDate today) {
+        if (block.getStartDate() == null || block.getDueDate() == null) {
+            return null;
+        }
+        Map<LocalDate, Long> spentByDate = new HashMap<>();
+        transactionRepository.sumBlockSpentByDay(block.getId(), block.getStartDate().atStartOfDay(),
+                        block.getDueDate().plusDays(1).atStartOfDay())
+                .forEach(day -> spentByDate.put(day.date(), day.total()));
+        return BurnCalculator.calculate(monthlyAmount, block.getStartDate(), block.getDueDate(), today,
+                block.getBalance(), spentByDate);
     }
 
     private BlockDetailResponse.Payment payment(Transaction transaction, Integer payDay) {

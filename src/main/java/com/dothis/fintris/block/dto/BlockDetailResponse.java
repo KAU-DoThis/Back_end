@@ -85,9 +85,26 @@ public record BlockDetailResponse(
             @Schema(description = "남은 비율(%) = 잔액 ÷ 월 배분액", example = "63") Integer remainingRate,
             @Schema(description = "기간 남은 일수(오늘 포함)", example = "18") long remainingDays,
             Today today,
-            // TODO: 소진 속도 그래프(계획 대비 실제 누적, 예상 소진일)를 채운다
-            @Schema(description = "소진 속도. 아직 계산 전이라 null", example = "null") Object burn,
+            @Schema(description = "소진 속도. 월 배분액이 없으면 null") Burn burn,
             @Schema(description = "이 블록에 반영된 최근 거래 (최대 5건, 최신순)") List<TransactionResponse> recentTransactions
+    ) {
+    }
+
+    @Schema(description = "소진 속도 (계획 대비 실제 누적)")
+    public record Burn(
+            @Schema(description = "오늘 기준 (실제 − 계획) ÷ 계획 × 100. 양수면 계획보다 빨리 씀", example = "17") Integer paceDiffRate,
+            @Schema(example = "계획보다 17% 빠름") String paceLabel,
+            @Schema(description = "기간 시작부터 오늘까지 쓴 돈", example = "550000") long actualSpent,
+            @Schema(description = "기간 시작부터 오늘까지 하루 한 점") List<BurnPoint> series,
+            @Schema(description = "지금 속도면 잔액이 바닥나는 날. 기간 안에 안 바닥나면 null", example = "2026-10-28")
+            LocalDate expectedDepletionDate
+    ) {
+    }
+
+    public record BurnPoint(
+            @Schema(example = "2026-10-14") LocalDate date,
+            @Schema(description = "그날까지 계획한 누적 지출", example = "677400") long planned,
+            @Schema(description = "그날까지 실제 누적 지출", example = "550000") long actual
     ) {
     }
 

@@ -54,6 +54,17 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     BlockSpent sumBlockSpent(@Param("blockId") Long blockId,
                              @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
+    // 블록 상세 소진 속도: 이 블록에 반영된 거래 금액의 날짜별 합
+    @Query("""
+            select new com.dothis.fintris.transaction.repository.DayTotal(
+              cast(t.occurredAt as LocalDate), coalesce(sum(t.amount), 0))
+            from Transaction t
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            group by cast(t.occurredAt as LocalDate)
+            """)
+    List<DayTotal> sumBlockSpentByDay(@Param("blockId") Long blockId,
+                                      @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     @Query("""
             select t from Transaction t
