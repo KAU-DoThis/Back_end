@@ -77,7 +77,7 @@ public class TransactionSyncService {
                 syncAccount(bank);
             } catch (RuntimeException e) {
                 failed++;
-                log.warn("거래내역 동기화 실패: institution={}", bank.getInstitutionCode());
+                log.warn("거래내역 동기화 실패: institution={}, reason={}", bank.getInstitutionCode(), failureReason(e));
             }
         }
         Map<String, List<LinkedAccount>> cardsByInstitution = accounts.stream()
@@ -88,7 +88,8 @@ public class TransactionSyncService {
                 syncCardInstitution(cards);
             } catch (RuntimeException e) {
                 failed += cards.size();
-                log.warn("카드 승인내역 동기화 실패: institution={}", cards.getFirst().getInstitutionCode());
+                log.warn("카드 승인내역 동기화 실패: institution={}, reason={}", cards.getFirst().getInstitutionCode(),
+                        failureReason(e));
             }
         }
         boolean hasBank = accounts.stream().anyMatch(account -> account.getType() == LinkedAccountType.BANK);
@@ -106,6 +107,14 @@ public class TransactionSyncService {
             log.warn("블록 반영 실패");
         }
         return new SyncSummary(accounts.size(), failed);
+    }
+
+    // CODEF가 거절했으면 실패 코드·메시지, 그 밖이면 예외 종류만 남긴다 (인증정보는 로그에 남기지 않는다)
+    private static String failureReason(RuntimeException e) {
+        if (e instanceof AccountLinkRejectedException rejected) {
+            return rejected.getInstitutionCode() + " " + rejected.getInstitutionMessage();
+        }
+        return e.getClass().getSimpleName();
     }
 
     // 이번 동기화 범위 중 블록 확정 뒤의 출금만 본다. 거래 하나씩 따로 저장하고, 블록 충돌이면 그 거래만 다시 시도한다
