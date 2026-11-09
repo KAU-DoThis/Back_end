@@ -86,6 +86,7 @@ CREATE TABLE user_settings (
     user_id             BIGINT       NOT NULL,
     tutorial_done       TINYINT(1)   NOT NULL DEFAULT 0,
     blocks_confirmed    TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '초기 블록 확정 여부. 온보딩 단계는 저장하지 않고 계산한다',
+    blocks_confirmed_at DATETIME(6)  NULL COMMENT '처음 초기 블록을 확정한 시각. 이후에 일어난 거래만 블록에 반영한다 (F-21)',
     nickname            VARCHAR(30)  NULL COMMENT 'TBD: 필요 여부',
     created_at          DATETIME(6)  NOT NULL,
     updated_at          DATETIME(6)  NOT NULL,
@@ -221,7 +222,7 @@ CREATE TABLE block_transfers (
     from_waiting_fund_id  BIGINT       NULL COMMENT '나눌 돈에서 배분',
     to_waiting_fund_id    BIGINT       NULL COMMENT '블록 삭제 시 나눌 돈으로 반환',
     amount                BIGINT       NOT NULL,
-    reason                VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI / ALLOCATION / SUGGESTION',
+    reason                VARCHAR(20)  NOT NULL COMMENT 'MANUAL / SAVING / AI / ALLOCATION / SUGGESTION / UNDO',
     created_at            DATETIME(6)  NOT NULL COMMENT '= executed_at',
     PRIMARY KEY (block_transfer_id),
     CONSTRAINT fk_block_transfers_from      FOREIGN KEY (from_block_id)        REFERENCES blocks (block_id),
@@ -252,6 +253,7 @@ CREATE TABLE transactions (
     context_tag         VARCHAR(30)   NULL COMMENT 'LATE_NIGHT_FOOD 답 코드 (값 목록 미정)',
     classified_by       VARCHAR(10)   NULL COMMENT 'AUTO / USER / RULE. [v5] NULL = AI 분류 전(서버 다운 등) → 다음 동기화 때 재분류 대상',
     block_id            BIGINT        NULL COMMENT '미반영 NULL',
+    block_amount        BIGINT        NULL COMMENT '반영 블록에서 실제로 뺀 금액. 블록이 0에서 멈추면 거래 금액보다 작다. 되돌릴 때 이만큼만 돌려준다 (F-21)',
     excluded            TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '소비 제외: 입금·카드대금·현금 인출·본인 계좌 이동(AI excluded 또는 BE 판정)',
     is_canceled         TINYINT(1)    NOT NULL DEFAULT 0 COMMENT 'resCancelYN=1 또는 KB 취소전표(음수). 부분취소는 amount에서 차감',
     external_key        VARCHAR(255)  NULL COMMENT '[v5] CODEF 중복 판정 키. 카드=기관+승인번호+승인일시, 은행=계좌+거래일시+금액+적요 해시. 취소 건은 같은 키로 기존 행 갱신',
@@ -402,6 +404,34 @@ CREATE TABLE notification_app_whitelist (
     updated_at                    DATETIME(6)  NOT NULL,
     PRIMARY KEY (notification_app_whitelist_id),
     UNIQUE KEY uk_whitelist_package (package_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 9. 초불이의 방 (F-16). 대화 기록은 AI 서버 DB에 두고, 돈이 움직이는 제안만 여기 둔다
+-- ---------------------------------------------------------------------
+
+CREATE TABLE coach_proposals (
+    coach_proposal_id   BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id             BIGINT       NOT NULL,
+    from_block_id       BIGINT       NOT NULL,
+    to_block_id         BIGINT       NOT NULL,
+    amount              BIGINT       NOT NULL,
+    preview             JSON         NOT NULL COMMENT '제안 카드에 보여 준 숫자 (수락 때 블록 version 비교)',
+    status              VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / ACCEPTED / REJECTED / UNDONE (만료는 expires_at으로 계산)',
+    transfer_id         BIGINT       NULL COMMENT '수락해서 옮긴 이동',
+    result              JSON         NULL COMMENT '옮긴 뒤 잔액',
+    undo_transfer_id    BIGINT       NULL COMMENT '되돌린 이동',
+    undo_result         JSON         NULL COMMENT '되돌린 뒤 잔액',
+    expires_at          DATETIME(6)  NOT NULL,
+    created_at          DATETIME(6)  NOT NULL,
+    updated_at          DATETIME(6)  NOT NULL,
+    PRIMARY KEY (coach_proposal_id),
+    KEY idx_coach_proposals_user (user_id, created_at),
+    CONSTRAINT fk_coach_proposals_user          FOREIGN KEY (user_id)          REFERENCES users (user_id),
+    CONSTRAINT fk_coach_proposals_from_block    FOREIGN KEY (from_block_id)    REFERENCES blocks (block_id),
+    CONSTRAINT fk_coach_proposals_to_block      FOREIGN KEY (to_block_id)      REFERENCES blocks (block_id),
+    CONSTRAINT fk_coach_proposals_transfer      FOREIGN KEY (transfer_id)      REFERENCES block_transfers (block_transfer_id),
+    CONSTRAINT fk_coach_proposals_undo_transfer FOREIGN KEY (undo_transfer_id) REFERENCES block_transfers (block_transfer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

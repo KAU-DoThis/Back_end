@@ -510,6 +510,7 @@ v3와 같다. 확인 필요 처리 `action`: `KEEP`(유지) · `DELETE`(삭제, 
 }
 ```
 - `dailyGuide.basis`: `BLOCK_PERIOD`(현재: 기본 블록 잔액 ÷ 기간 남은 일수, 100원 내림) · `NEXT_INCOME`(불규칙 수입 로직 적용 후) — FE 표시 문구 "생활비 950,000원 남은 18일 기준"에 사용
+- `dailyGuide.todayAvailable`은 아침 기준이라 하루 동안 그대로다(오늘 쓴 돈을 되돌린 잔액으로 계산). `todaySpent`는 오늘 기본 블록에 반영된 거래 합, `todayRemaining` = `todayAvailable` − `todaySpent`. **음수면 오늘 가능 금액을 넘겨 쓴 것**이라 앱은 "4,500원 초과"처럼 보여준다. 블록 상세(사용형) `today`도 같은 값이다
 - `accounts`: 홈 상단 카드를 넘기면 나오는 은행 카드(01-1). 첫 카드는 총 자산, 그다음부터 계좌별. 블록은 계좌와 무관하게 그대로
 - `suggestion`: 제안 카드 객체, 없으면 `null`
 - `waitingFunds`: 금액이 0보다 큰 것만. 비어 있으면 "나눌 돈" 영역을 숨긴다

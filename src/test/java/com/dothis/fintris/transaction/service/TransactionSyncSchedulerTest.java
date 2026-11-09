@@ -1,6 +1,5 @@
 package com.dothis.fintris.transaction.service;
 
-import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,7 +24,7 @@ class TransactionSyncSchedulerTest {
     @Test
     @DisplayName("은행 계좌가 있는 모든 사용자를 동기화한다")
     void syncsEveryUserWithBankAccount() {
-        when(linkedAccountRepository.findUserIdsWithActive(LinkedAccountType.BANK)).thenReturn(List.of(1L, 2L));
+        when(linkedAccountRepository.findUserIdsWithActive()).thenReturn(List.of(1L, 2L));
 
         scheduler.syncAllUsers();
 
@@ -36,7 +35,7 @@ class TransactionSyncSchedulerTest {
     @Test
     @DisplayName("한 사용자에서 예외가 나도 다음 사용자를 계속 동기화한다")
     void continuesAfterUserFailure() {
-        when(linkedAccountRepository.findUserIdsWithActive(LinkedAccountType.BANK)).thenReturn(List.of(1L, 2L));
+        when(linkedAccountRepository.findUserIdsWithActive()).thenReturn(List.of(1L, 2L));
         doThrow(new IllegalStateException("boom")).when(manualSyncService).runScheduled(1L);
 
         scheduler.syncAllUsers();

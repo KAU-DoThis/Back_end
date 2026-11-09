@@ -19,6 +19,52 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("select t.externalKey from Transaction t where t.user.id = :userId and t.externalKey in :keys")
     List<String> findExistingExternalKeys(@Param("userId") Long userId, @Param("keys") Collection<String> keys);
 
+    // 카드 취소는 같은 키의 기존 거래를 고쳐야 해서 키가 아니라 거래를 가져온다
+    List<Transaction> findAllByUser_IdAndExternalKeyIn(Long userId, Collection<String> keys);
+
+    // 체크카드 중복 판정용. 은행·카드 구분이 필요해 계좌를 함께 가져온다
+    @EntityGraph(attributePaths = "linkedAccount")
+    @Query("""
+            select t from Transaction t
+            where t.user.id = :userId and t.occurredAt >= :from and t.isCanceled = false
+              and t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
+            """)
+    List<Transaction> findOutgoingSince(@Param("userId") Long userId, @Param("from") LocalDateTime from);
+
+    // 블록 반영을 다시 맞출 후보. 취소·소비 제외된 거래도 되돌려야 해서 함께 고른다
+    @Query("""
+            select t.id from Transaction t
+            where t.user.id = :userId and t.occurredAt >= :from
+              and t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
+            order by t.occurredAt, t.id
+            """)
+    List<Long> findOutgoingIdsSince(@Param("userId") Long userId, @Param("from") LocalDateTime from);
+
+    // 블록 상세: 이 블록에 반영된 최근 거래 (사용형 최근 거래, 고정지출형 납부 기록)
+    @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
+    List<Transaction> findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId);
+
+    // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
+    @Query("""
+            select new com.dothis.fintris.transaction.repository.BlockSpent(
+              coalesce(sum(t.amount), 0), coalesce(sum(t.blockAmount), 0))
+            from Transaction t
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            """)
+    BlockSpent sumBlockSpent(@Param("blockId") Long blockId,
+                             @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    // 블록 상세 소진 속도: 이 블록에 반영된 거래 금액의 날짜별 합
+    @Query("""
+            select new com.dothis.fintris.transaction.repository.DayTotal(
+              cast(t.occurredAt as LocalDate), coalesce(sum(t.amount), 0))
+            from Transaction t
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            group by cast(t.occurredAt as LocalDate)
+            """)
+    List<DayTotal> sumBlockSpentByDay(@Param("blockId") Long blockId,
+                                      @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     @EntityGraph(attributePaths = {"linkedAccount", "category", "block"})
     @Query("""
             select t from Transaction t
