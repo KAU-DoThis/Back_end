@@ -19,8 +19,8 @@ import java.util.TreeMap;
 public class RecurringPaymentDetector {
 
     static final int MIN_MONTHS = 3;
-    static final int MAX_DAY_GAP = 3;
-    static final int AMOUNT_TOLERANCE_PERCENT = 10;
+    public static final int MAX_DAY_GAP = 3;
+    public static final int AMOUNT_TOLERANCE_PERCENT = 10;
 
     public List<RecurringPayment> detect(List<Transaction> transactions) {
         Map<String, List<Transaction>> byPayee = new LinkedHashMap<>();
