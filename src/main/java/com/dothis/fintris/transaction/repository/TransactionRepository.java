@@ -105,6 +105,19 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
                                 @Param("from") LocalDateTime from, @Param("to") LocalDateTime to,
                                 @Param("linkedAccountId") Long linkedAccountId, @Param("blockId") Long blockId);
 
+    // 소비 분석(F-01) 카테고리별 쓴 돈. 거래 목록의 쓴 돈과 같은 조건이라 합이 목록 합계와 맞는다
+    @Query("""
+            select new com.dothis.fintris.transaction.repository.CategorySpent(
+              c.id, c.code, c.name, count(t), coalesce(sum(t.amount), 0))
+            from Transaction t left join t.category c
+            where t.user.id = :userId and t.occurredAt >= :from and t.occurredAt < :to
+              and t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
+              and t.isCanceled = false and t.excluded = false
+            group by c.id, c.code, c.name
+            """)
+    List<CategorySpent> sumSpentByCategory(@Param("userId") Long userId,
+                                           @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     // 날짜별 쓴 돈(출금 합계, 양수). 취소·소비 제외 거래는 빼고 목록과 같은 조건을 건다
     @Query("""
             select new com.dothis.fintris.transaction.repository.DayTotal(
