@@ -34,6 +34,7 @@ class SpendingAnalysisServiceTest {
     private static final YearMonth SEPTEMBER = YearMonth.of(2026, 9);
 
     @Mock TransactionRepository transactionRepository;
+    @Mock RecurringSpendingFinder recurringSpendingFinder;
     @InjectMocks SpendingAnalysisService spendingAnalysisService;
 
     private void givenSpent(YearMonth month, List<CategorySpent> spents) {
