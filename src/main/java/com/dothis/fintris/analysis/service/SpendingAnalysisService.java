@@ -1,9 +1,11 @@
 package com.dothis.fintris.analysis.service;
 
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse;
+import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.BiggestIncrease;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CategoryItem;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CompareTo;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.Period;
+import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.TimeOfDay;
 import com.dothis.fintris.transaction.repository.CategorySpent;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
@@ -11,9 +13,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,8 +62,47 @@ public class SpendingAnalysisService {
         Long previousSpent = previousAvailable ? total(previous) : null;
         Long changeAmount = previousAvailable ? totalSpent - previousSpent : null;
         return new SpendingAnalysisResponse(period, compareTo, totalSpent, previousSpent, changeAmount,
-                previousAvailable ? changeRate(changeAmount, previousSpent) : null,
-                categories, previousAvailable, current.isEmpty());
+                previousAvailable ? changeRate(changeAmount, previousSpent) : null, categories,
+                previousAvailable ? biggestIncrease(userId, period, current, previousByCategory) : null,
+                previousAvailable, current.isEmpty());
+    }
+
+    // 미분류는 무엇이 늘었는지 말할 수 없어 뺀다
+    private BiggestIncrease biggestIncrease(Long userId, Period period, List<CategorySpent> current,
+                                            Map<Long, Long> previousByCategory) {
+        CategorySpent top = null;
+        long topChange = 0;
+        for (CategorySpent spent : current) {
+            long change = spent.amount() - previousByCategory.getOrDefault(spent.categoryId(), 0L);
+            if (spent.categoryId() != null && change > topChange) {
+                top = spent;
+                topChange = change;
+            }
+        }
+        if (top == null) {
+            return null;
+        }
+
+        long previousAmount = previousByCategory.getOrDefault(top.categoryId(), 0L);
+        List<LocalDateTime> times = transactionRepository.findSpentTimes(userId, top.categoryId(),
+                period.from().atStartOfDay(), period.to().plusDays(1).atStartOfDay());
+        Map<TimeSlot, Long> counts = new EnumMap<>(TimeSlot.class);
+        times.forEach(time -> counts.merge(TimeSlot.of(time.toLocalTime()), 1L, Long::sum));
+        List<TimeOfDay> timeOfDay = Arrays.stream(TimeSlot.values())
+                .map(slot -> new TimeOfDay(slot.name(), slot.getLabel(), counts.getOrDefault(slot, 0L)))
+                .toList();
+
+        return new BiggestIncrease(top.categoryId(), top.name(), topChange, changeRate(topChange, previousAmount),
+                previousAmount, null, timeOfDay, timeSummary(times.size(), counts), null);
+    }
+
+    // 한 시간대에 절반 이상 몰렸을 때만 말한다. 고르게 퍼져 있으면 null
+    static String timeSummary(long total, Map<TimeSlot, Long> counts) {
+        return counts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .filter(top -> top.getValue() * 2 >= total)
+                .map(top -> total + "번 중 " + top.getValue() + "번이 " + top.getKey().getSummaryPhrase() + "였어요")
+                .orElse(null);
     }
 
     // 이번 달은 지난달 같은 날짜까지 비교한다. 지난달에 그 날짜가 없으면(3/31 → 2월) 말일까지

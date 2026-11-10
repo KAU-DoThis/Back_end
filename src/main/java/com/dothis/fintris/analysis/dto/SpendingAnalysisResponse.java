@@ -15,6 +15,8 @@ public record SpendingAnalysisResponse(
         @Schema(example = "64000") Long changeAmount,
         @Schema(description = "지난 기간 대비 증감률(%), 반올림", example = "12") Integer changeRate,
         @Schema(description = "쓴 돈이 많은 순. 분류 전 거래는 categoryId=null, code=UNCLASSIFIED") List<CategoryItem> categories,
+        @Schema(description = "지난 기간보다 가장 많이 늘어난 카테고리(미분류 제외). 늘어난 곳이 없거나 비교할 수 없으면 null")
+        BiggestIncrease biggestIncrease,
         boolean previousAvailable,
         @Schema(description = "기간 안에 쓴 돈이 없으면 true (빈 상태 화면)") boolean empty
 ) {
@@ -39,6 +41,27 @@ public record SpendingAnalysisResponse(
             @Schema(example = "13") long count,
             @Schema(example = "182000") long amount,
             @Schema(description = "지난 기간 같은 카테고리 대비 증감", example = "50000") Long changeAmount
+    ) {
+    }
+
+    // TODO: explanation은 AI 설명 문장, excludedNote는 맥락 질문(F-15) 태그가 붙으면 채운다
+    public record BiggestIncrease(
+            @Schema(example = "2") Long categoryId,
+            @Schema(example = "배달/외식") String name,
+            @Schema(example = "50000") long changeAmount,
+            @Schema(description = "지난 기간이 0원이면 null", example = "38") Integer changeRate,
+            @Schema(example = "132000") long previousAmount,
+            @Schema(example = "횟수가 9번에서 13번으로 늘었고, 한 번에 쓰는 돈은 비슷해요.") String explanation,
+            List<TimeOfDay> timeOfDay,
+            @Schema(example = "13번 중 9번이 밤 10시 이후였어요") String timeSummary,
+            @Schema(example = "야근 식대로 표시한 2건(46,000원)은 절약 후보에서 뺐어요") String excludedNote
+    ) {
+    }
+
+    public record TimeOfDay(
+            @Schema(example = "NIGHT") String slot,
+            @Schema(example = "밤 22시~") String label,
+            @Schema(example = "9") long count
     ) {
     }
 }
