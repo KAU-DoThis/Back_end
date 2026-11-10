@@ -6,6 +6,7 @@ import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.block.code.BlockErrorCode;
 import com.dothis.fintris.block.dto.BlockProposalConfirmRequest;
 import com.dothis.fintris.block.dto.BlockProposalConfirmResponse;
+import com.dothis.fintris.block.dto.BlockProposalResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.entity.BlockCreatedBy;
 import com.dothis.fintris.block.entity.BlockRule;
@@ -15,6 +16,10 @@ import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.repository.BlockTransferRepository;
 import com.dothis.fintris.category.repository.CategoryRepository;
 import com.dothis.fintris.global.exception.GeneralException;
+import com.dothis.fintris.transaction.entity.Transaction;
+import com.dothis.fintris.transaction.entity.TransactionDirection;
+import com.dothis.fintris.transaction.repository.TransactionRepository;
+import com.dothis.fintris.transaction.service.RecurringPaymentDetector;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.OnboardingStep;
 import com.dothis.fintris.user.entity.User;
@@ -59,6 +64,7 @@ class BlockProposalServiceTest {
     @Mock UserRepository userRepository;
     @Mock UserSettingRepository userSettingRepository;
     @Mock UserService userService;
+    @Mock TransactionRepository transactionRepository;
 
     private BlockProposalService service;
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
@@ -71,7 +77,8 @@ class BlockProposalServiceTest {
         BlockService blockService = new BlockService(blockRepository, blockCategoryRepository,
                 blockTransferRepository, categoryRepository, userRepository, waitingFundRepository);
         service = new BlockProposalService(blockService, userService, blockRepository, blockTransferRepository,
-                waitingFundRepository, linkedAccountRepository, userRepository, userSettingRepository);
+                waitingFundRepository, linkedAccountRepository, userRepository, userSettingRepository,
+                transactionRepository, new RecurringPaymentDetector());
 
         setting = UserSetting.builder().user(user).tutorialDone(true).blocksConfirmed(false).build();
         lenient().when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
@@ -80,6 +87,31 @@ class BlockProposalServiceTest {
                 .thenReturn(Optional.empty());
         lenient().when(waitingFundRepository.save(any(WaitingFund.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(userService.getOnboardingStep(USER_ID)).thenReturn(OnboardingStep.DONE);
+    }
+
+    @Test
+    void 매달_나간_출금을_고정지출로_제안하고_생활비는_남은_돈으로_잡는다() {
+        linkedBalance(2_000_000);
+        LocalDate thisMonth = LocalDate.now(ZoneId.of("Asia/Seoul")).withDayOfMonth(1);
+        when(transactionRepository.findOutgoingSince(any(), any())).thenReturn(List.of(
+                out(thisMonth.minusMonths(3).withDayOfMonth(25), 600_000),
+                out(thisMonth.minusMonths(2).withDayOfMonth(25), 620_000),
+                out(thisMonth.minusMonths(1).withDayOfMonth(25), 600_000)));
+
+        BlockProposalResponse response = service.getProposals(USER_ID);
+
+        assertThat(response.summary().recurringCount()).isEqualTo(1);
+        assertThat(response.proposals()).extracting(BlockProposalResponse.Proposal::type)
+                .containsExactly(BlockType.FIXED, BlockType.SPENDING);
+        BlockProposalResponse.Proposal fixed = response.proposals().get(0);
+        assertThat(fixed.balance()).isEqualTo(600_000);
+        assertThat(fixed.rule().payDay()).isEqualTo(25);
+        assertThat(fixed.rule().matchCondition().amountMode()).isEqualTo(BlockRule.AmountMode.RANGE);
+        assertThat(fixed.rule().matchCondition().minAmount()).isEqualTo(540_000);
+        assertThat(fixed.rule().matchCondition().maxAmount()).isEqualTo(660_000);
+        assertThat(fixed.foundFrom()).isEqualTo("TRANSACTIONS");
+        assertThat(response.proposals().get(1).balance()).isEqualTo(1_400_000);
+        assertThat(response.summary().unallocated()).isZero();
     }
 
     @Test
@@ -156,6 +188,11 @@ class BlockProposalServiceTest {
                 .build();
         when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(USER_ID))
                 .thenReturn(List.of(account));
+    }
+
+    private Transaction out(LocalDate date, long amount) {
+        return Transaction.builder().user(user).occurredAt(date.atTime(9, 0)).amount(amount)
+                .direction(TransactionDirection.OUT).merchantOrPayee("김*수").build();
     }
 
     private BlockProposalConfirmRequest.Item item(BlockType type, String name, long balance, BlockRule rule) {

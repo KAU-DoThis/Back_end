@@ -9,6 +9,7 @@ import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockRule;
 import com.dothis.fintris.block.entity.BlockTransfer;
+import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.repository.BlockCategoryRepository;
 import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.repository.BlockTransferRepository;
@@ -263,11 +264,21 @@ public class BlockDetailService {
         };
     }
 
-    // TODO: 고정지출 납부 기록(PAYMENT)은 거래 반영(F-21)이 붙으면 같은 목록에 넣는다
+    // 목표형·사용형은 들어오고 나간 돈, 고정지출형은 납부 기록 (API 명세 v4 6장)
     public BlockHistoryResponse getHistory(Long userId, Long blockId, int page, int size) {
         Block block = findOwnedBlock(userId, blockId);
-        Slice<BlockTransfer> slice = blockTransferRepository.findHistory(blockId,
-                PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), MAX_PAGE_SIZE)));
+        PageRequest pageable = PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), MAX_PAGE_SIZE));
+        if (block.getType() == BlockType.FIXED) {
+            // 블록에 반영된 출금 = 납부 확인 조건에 맞은 납부. 금액은 실제로 낸 돈
+            Slice<Transaction> payments = transactionRepository.findByBlock_IdOrderByOccurredAtDescIdDesc(blockId, pageable);
+            return new BlockHistoryResponse(payments.getContent().stream()
+                    .map(transaction -> new BlockHistoryResponse.Item(transaction.getOccurredAt().toLocalDate(),
+                            BlockHistoryResponse.Kind.PAYMENT, transaction.getMerchantOrPayee() + " 납부",
+                            accountLabel(transaction.getLinkedAccount()), -transaction.getAmount()))
+                    .toList(),
+                    payments.hasNext());
+        }
+        Slice<BlockTransfer> slice = blockTransferRepository.findHistory(blockId, pageable);
         return new BlockHistoryResponse(
                 slice.getContent().stream().map(transfer -> BlockHistoryResponse.Item.of(block, transfer)).toList(),
                 slice.hasNext());

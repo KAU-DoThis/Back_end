@@ -34,6 +34,8 @@ services:
       CODEF_PUBLIC_KEY: ${CODEF_PUBLIC_KEY:-}
       CODEF_CONNECTED_ID_KEY: ${CODEF_CONNECTED_ID_KEY:?CODEF_CONNECTED_ID_KEY가 .env에 없습니다}
       AI_BASE_URL: ${AI_BASE_URL:-http://localhost:8000}
+      # 개발 서버 테스트용 API(/dev/**). 실서비스 서버에서는 넣지 않는다
+      DEV_TOOLS_ENABLED: ${DEV_TOOLS_ENABLED:-false}
     # 서버 자신(127.0.0.1)에서만 열린다. 외부 공개는 caddy가 맡는다.
     # 도메인이 없을 때는 SSM 포트 포워딩으로 내 PC에서 Swagger를 본다.
     ports:
