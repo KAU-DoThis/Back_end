@@ -60,6 +60,12 @@ public class UserSetting extends BaseEntity {
         }
     }
 
+    // 개발 서버 시연용: 블록 구성 전으로 되돌린다 (튜토리얼·닉네임은 그대로)
+    public void resetBlocksConfirmation() {
+        this.blocksConfirmed = false;
+        this.blocksConfirmedAt = null;
+    }
+
     // 개발 서버 시연용: 확정 시각을 옮긴다. 옮긴 뒤 블록 반영을 다시 맞춰야 한다 (DevBlocksService)
     public void moveBlocksConfirmedAt(LocalDateTime confirmedAt) {
         this.blocksConfirmedAt = confirmedAt;
