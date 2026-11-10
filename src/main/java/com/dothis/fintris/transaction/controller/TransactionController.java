@@ -17,6 +17,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import com.dothis.fintris.transaction.dto.TransactionReviewRequest;
+import com.dothis.fintris.transaction.dto.TransactionReviewResponse;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -63,5 +65,16 @@ public class TransactionController {
                                                            @RequestBody @Valid TransactionCategoryRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK,
                 transactionService.changeCategory(userId, transactionId, request.categoryId()));
+    }
+
+    @Operation(summary = "확인 필요 거래 처리",
+            description = "KEEP: 확정, DELETE: 블록 잔액을 복구하고 삭제. 확인 필요 상태가 아니면 409 TRANSACTION_NOT_REVIEWABLE, "
+                    + "은행·카드에서 가져온 거래를 지우려 하면 409 TRANSACTION_NOT_DELETABLE")
+    @PatchMapping("/{transactionId}/review")
+    public ApiResponse<TransactionReviewResponse> review(@AuthenticationPrincipal Long userId,
+                                                         @PathVariable Long transactionId,
+                                                         @RequestBody @Valid TransactionReviewRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK,
+                transactionService.review(userId, transactionId, request.action()));
     }
 }
