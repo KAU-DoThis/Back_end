@@ -50,6 +50,8 @@ public class SpendingAnalysisService {
         List<CategorySpent> previous = sumByCategory(userId, compareTo.from(), compareTo.to());
         boolean previousAvailable = !previous.isEmpty();
 
+        Map<Long, CategorySpent> previousSpents = new HashMap<>();
+        previous.forEach(spent -> previousSpents.put(spent.categoryId(), spent));
         Map<Long, Long> previousByCategory = new HashMap<>();
         previous.forEach(spent -> previousByCategory.put(spent.categoryId(), spent.amount()));
 
@@ -67,7 +69,7 @@ public class SpendingAnalysisService {
         Long changeAmount = previousAvailable ? totalSpent - previousSpent : null;
         return new SpendingAnalysisResponse(period, compareTo, totalSpent, previousSpent, changeAmount,
                 previousAvailable ? changeRate(changeAmount, previousSpent) : null, categories,
-                previousAvailable ? biggestIncrease(userId, period, current, previousByCategory) : null,
+                previousAvailable ? biggestIncrease(userId, period, current, previousByCategory, previousSpents) : null,
                 recurring(userId, period), previousAvailable, current.isEmpty());
     }
 
@@ -80,7 +82,7 @@ public class SpendingAnalysisService {
 
     // 미분류는 무엇이 늘었는지 말할 수 없어 뺀다
     private BiggestIncrease biggestIncrease(Long userId, Period period, List<CategorySpent> current,
-                                            Map<Long, Long> previousByCategory) {
+                                            Map<Long, Long> previousByCategory, Map<Long, CategorySpent> previousSpents) {
         CategorySpent top = null;
         long topChange = 0;
         for (CategorySpent spent : current) {
@@ -103,8 +105,29 @@ public class SpendingAnalysisService {
                 .map(slot -> new TimeOfDay(slot.name(), slot.getLabel(), counts.getOrDefault(slot, 0L)))
                 .toList();
 
+        CategorySpent before = previousSpents.get(top.categoryId());
+        String explanation = explanation(before == null ? 0 : before.count(), top.count(), previousAmount, top.amount());
         return new BiggestIncrease(top.categoryId(), top.name(), topChange, changeRate(topChange, previousAmount),
-                previousAmount, null, timeOfDay, timeSummary(times.size(), counts), null);
+                previousAmount, explanation, timeOfDay, timeSummary(times.size(), counts), null);
+    }
+
+    // TODO: AI 설명 문장(/internal/ai/spending-comment) 형식이 정해지면 AI 문장을 먼저 쓰고, 실패하면 이 틀을 쓴다
+    // 횟수와 건당 금액 중 무엇 때문에 늘었는지 말한다. 건당 금액은 ±10% 안이면 비슷하다고 본다
+    static String explanation(long previousCount, long count, long previousAmount, long amount) {
+        if (previousCount == 0) {
+            return "지난 기간엔 없던 지출이 " + count + "번 생겼어요.";
+        }
+        // 건당 금액 비교: amount/count vs previousAmount/previousCount 를 곱셈으로 비교한다
+        long now = amount * previousCount;
+        long before = previousAmount * count;
+        String perPayment = Math.abs(now - before) * 100 <= before * 10 ? "비슷해요"
+                : now > before ? "더 커졌어요" : "더 작아졌어요";
+        if (count > previousCount) {
+            return "횟수가 " + previousCount + "번에서 " + count + "번으로 늘었고, 한 번에 쓰는 돈은 " + perPayment + ".";
+        }
+        String countPart = count == previousCount ? "횟수는 " + count + "번으로 같지만"
+                : "횟수는 " + previousCount + "번에서 " + count + "번으로 줄었지만";
+        return countPart + ", 한 번에 쓰는 돈이 커졌어요.";
     }
 
     // 한 시간대에 절반 이상 몰렸을 때만 말한다. 고르게 퍼져 있으면 null

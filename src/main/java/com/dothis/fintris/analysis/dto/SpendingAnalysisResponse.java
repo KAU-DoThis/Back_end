@@ -45,7 +45,7 @@ public record SpendingAnalysisResponse(
     ) {
     }
 
-    // TODO: explanation은 AI 설명 문장, excludedNote는 맥락 질문(F-15) 태그가 붙으면 채운다
+    // TODO: excludedNote는 맥락 질문(F-15) 태그가 붙으면 채운다. explanation은 지금은 문장 틀이다
     public record BiggestIncrease(
             @Schema(example = "2") Long categoryId,
             @Schema(example = "배달/외식") String name,
