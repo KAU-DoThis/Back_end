@@ -67,6 +67,68 @@ class BlockStatusJudgeTest {
     }
 
     @Nested
+    @DisplayName("목표형")
+    class Goal {
+
+        private static final long TARGET = 1_000_000;
+        private static final long MONTHLY = 200_000;
+        // 월 20만 원이면 남은 100만 원을 150일에 모은다 → 기한 안
+        private static final LocalDate FAR_DUE = LocalDate.of(2027, 12, 31);
+
+        private Judgement onDay(int day, long securedThisMonth) {
+            return BlockStatusJudge.goal(0, TARGET, MONTHLY, FAR_DUE, LocalDate.of(2026, 11, day), securedThisMonth);
+        }
+
+        @Test
+        @DisplayName("다 모았으면 안전, 기한이 지났는데 못 모았으면 위험")
+        void achievedAndExpired() {
+            assertThat(BlockStatusJudge.goal(TARGET, TARGET, MONTHLY, FAR_DUE, DAY_10, 0))
+                    .isEqualTo(new Judgement(BlockStatus.SAFE, "목표 달성"));
+            assertThat(BlockStatusJudge.goal(500_000, TARGET, MONTHLY, START, DAY_10, 0))
+                    .isEqualTo(new Judgement(BlockStatus.DANGER, "기한 지남"));
+        }
+
+        @Test
+        @DisplayName("월 확보 금액대로 모아도 기한을 넘기면 주의와 늦어지는 기간")
+        void lateAtMonthlyPace() {
+            // 월 10만 원이면 300일 뒤 → 2027-03-31 기한보다 23주 늦음
+            Judgement result = BlockStatusJudge.goal(0, TARGET, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 100_000);
+
+            assertThat(result).isEqualTo(new Judgement(BlockStatus.CAUTION, "23주 늦어짐"));
+        }
+
+        @Test
+        @DisplayName("달 초(경과율 25% 전)는 아직 0원이어도 안전")
+        void earlyMonth() {
+            assertThat(onDay(5, 0).status()).isEqualTo(BlockStatus.SAFE);
+        }
+
+        @Test
+        @DisplayName("이번 달 확보액이 월 확보 금액 이상이거나 월말 예상이 100% 이상이면 안전")
+        void onTrack() {
+            assertThat(onDay(20, 200_000).status()).isEqualTo(BlockStatus.SAFE);
+            // 15일(50%)에 12만 원 → 월말 24만 원 예상
+            assertThat(onDay(15, 120_000).status()).isEqualTo(BlockStatus.SAFE);
+        }
+
+        @Test
+        @DisplayName("월말 예상 확보율 70~100%면 주의, 70% 미만이면 위험")
+        void projected() {
+            // 15일(50%)에 8만 원 → 월말 16만 원 = 80%
+            assertThat(onDay(15, 80_000)).isEqualTo(new Judgement(BlockStatus.CAUTION, "이번 달 확보 부족"));
+            // 15일(50%)에 5만 원 → 월말 10만 원 = 50%
+            assertThat(onDay(15, 50_000)).isEqualTo(new Judgement(BlockStatus.DANGER, "이번 달 확보 부족"));
+        }
+
+        @Test
+        @DisplayName("월 확보 금액을 정하지 않았으면 달성·기한만 본다")
+        void withoutMonthlyTarget() {
+            assertThat(BlockStatusJudge.goal(0, TARGET, null, FAR_DUE, LocalDate.of(2026, 11, 28), 0).status())
+                    .isEqualTo(BlockStatus.SAFE);
+        }
+    }
+
+    @Nested
     @DisplayName("고정지출형")
     class Fixed {
 
