@@ -6,6 +6,8 @@ import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.block.code.BlockErrorCode;
 import com.dothis.fintris.block.dto.BlockProposalConfirmRequest;
 import com.dothis.fintris.block.dto.BlockProposalConfirmResponse;
+import com.dothis.fintris.block.dto.BlockProposalPreviewRequest;
+import com.dothis.fintris.block.dto.BlockProposalPreviewResponse;
 import com.dothis.fintris.block.dto.BlockProposalResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.entity.BlockCreatedBy;
@@ -180,6 +182,49 @@ class BlockProposalServiceTest {
                 item(BlockType.FIXED, "월세", 0, new BlockRule(null, null, null, 25, 600_000L, null, null))))))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code").isEqualTo(BlockErrorCode.BLOCK_INVALID_DEFAULT);
+    }
+
+    @Test
+    void 미리보기는_요약과_사용형_하루_금액을_계산하고_생활비가_3달_평균보다_적으면_경고한다() {
+        linkedBalance(2_000_000);
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        // 월세 3번(고정지출이라 평균에서 뺌) + 최근 3달 생활비 지출 합 3,600,000 → 월 평균 1,200,000
+        when(transactionRepository.findOutgoingSince(any(), any())).thenReturn(List.of(
+                out(today.withDayOfMonth(1).minusMonths(3).withDayOfMonth(25), 600_000),
+                out(today.withDayOfMonth(1).minusMonths(2).withDayOfMonth(25), 600_000),
+                out(today.withDayOfMonth(1).minusMonths(1).withDayOfMonth(25), 600_000),
+                spend(today.minusDays(10), 1_800_000),
+                spend(today.minusDays(40), 1_800_000)));
+
+        BlockProposalPreviewResponse response = service.preview(USER_ID, new BlockProposalPreviewRequest(List.of(
+                new BlockProposalPreviewRequest.Item("fixed-1", BlockType.FIXED, 600_000L, null, null),
+                new BlockProposalPreviewRequest.Item("spending-default", BlockType.SPENDING, 1_500_000L,
+                        new BlockRule(1_000_000L, 1, null, null, null, null, null), true))));
+
+        assertThat(response.linkedBalance()).isEqualTo(2_000_000);
+        assertThat(response.allocated()).isEqualTo(2_100_000);
+        assertThat(response.unallocated()).isEqualTo(-100_000);
+        assertThat(response.blocks().get(0)).isEqualTo(new BlockProposalPreviewResponse.Block("fixed-1", null, null));
+        BlockProposalPreviewResponse.Block living = response.blocks().get(1);
+        assertThat(living.proposalKey()).isEqualTo("spending-default");
+        assertThat(living.dailyApprox()).isEqualTo(1_000_000 / today.lengthOfMonth() / 100 * 100);
+        assertThat(living.warning()).isEqualTo("최근 3달 평균보다 200,000원 적어요");
+    }
+
+    @Test
+    void 거래가_없으면_3달_평균이_없어_경고하지_않는다() {
+        linkedBalance(1_000_000);
+
+        BlockProposalPreviewResponse response = service.preview(USER_ID, new BlockProposalPreviewRequest(List.of(
+                new BlockProposalPreviewRequest.Item("spending-default", BlockType.SPENDING, 100_000L, null, null))));
+
+        assertThat(response.blocks().get(0).warning()).isNull();
+        assertThat(response.unallocated()).isEqualTo(900_000);
+    }
+
+    private Transaction spend(LocalDate date, long amount) {
+        return Transaction.builder().user(user).occurredAt(date.atTime(12, 0)).amount(amount)
+                .direction(TransactionDirection.OUT).merchantOrPayee("배달의민족").build();
     }
 
     private void linkedBalance(long balance) {

@@ -9,6 +9,8 @@ import com.dothis.fintris.block.dto.BlockListResponse;
 import com.dothis.fintris.block.dto.BlockOrderRequest;
 import com.dothis.fintris.block.dto.BlockProposalConfirmRequest;
 import com.dothis.fintris.block.dto.BlockProposalConfirmResponse;
+import com.dothis.fintris.block.dto.BlockProposalPreviewRequest;
+import com.dothis.fintris.block.dto.BlockProposalPreviewResponse;
 import com.dothis.fintris.block.dto.BlockProposalResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.dto.BlockUpdateRequest;
@@ -79,10 +81,21 @@ public class BlockController {
     }
 
     @Operation(summary = "초기 블록 구성안 (온보딩 3/3)",
-            description = "확정 전엔 아무것도 저장하지 않는다. 거래 분석 전이라 지금은 남은 잔액으로 기본 생활비 블록만 제안한다")
+            description = "확정 전엔 아무것도 저장하지 않는다. 최근 3달 거래에서 찾은 고정지출과 남은 돈으로 만든 생활비 블록을 제안한다")
     @GetMapping("/proposals")
     public ApiResponse<BlockProposalResponse> getProposals(@AuthenticationPrincipal Long userId) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockProposalService.getProposals(userId));
+    }
+
+    @Operation(summary = "초기 블록 구성 미리보기 (온보딩 3/3)",
+            description = "04에서 금액을 고칠 때마다 보낸다. 확정 요청과 같은 모양 + 블록마다 proposalKey. 저장하지 않는다. "
+                    + "요약(연동 잔액·나눈 돈·남는 돈, 넘치면 음수)과 블록별 하루 금액(사용형), "
+                    + "경고(기본 생활비가 최근 3달 평균보다 적으면)를 돌려준다")
+    @PostMapping("/proposals/preview")
+    public ApiResponse<BlockProposalPreviewResponse> previewProposals(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody @Valid BlockProposalPreviewRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, blockProposalService.preview(userId, request));
     }
 
     @Operation(summary = "초기 블록 확정 (온보딩 3/3)",
