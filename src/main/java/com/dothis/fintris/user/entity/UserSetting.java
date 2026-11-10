@@ -59,4 +59,9 @@ public class UserSetting extends BaseEntity {
             this.blocksConfirmedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
         }
     }
+
+    // 개발 서버 시연용: 확정 시각을 옮긴다. 옮긴 뒤 블록 반영을 다시 맞춰야 한다 (DevBlocksService)
+    public void moveBlocksConfirmedAt(LocalDateTime confirmedAt) {
+        this.blocksConfirmedAt = confirmedAt;
+    }
 }
