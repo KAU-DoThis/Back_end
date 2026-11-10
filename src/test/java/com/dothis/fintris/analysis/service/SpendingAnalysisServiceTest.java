@@ -127,6 +127,25 @@ class SpendingAnalysisServiceTest {
         assertThat(biggest.timeOfDay()).extracting(TimeOfDay::slot, TimeOfDay::count).containsExactly(
                 tuple("MORNING", 0L), tuple("LUNCH", 1L), tuple("EVENING", 0L), tuple("NIGHT", 3L));
         assertThat(biggest.timeSummary()).isEqualTo("4번 중 3번이 밤 10시 이후였어요");
+        assertThat(biggest.explanation()).isEqualTo("횟수가 3번에서 4번으로 늘었고, 한 번에 쓰는 돈은 비슷해요.");
+    }
+
+    @Test
+    @DisplayName("설명 문장은 횟수와 건당 금액 중 무엇 때문에 늘었는지 말한다")
+    void explanation() {
+        assertThat(SpendingAnalysisService.explanation(0, 4, 0, 40_000))
+                .isEqualTo("지난 기간엔 없던 지출이 4번 생겼어요.");
+        // 건당 14,667원 → 14,000원 (±10% 안)
+        assertThat(SpendingAnalysisService.explanation(9, 13, 132_000, 182_000))
+                .isEqualTo("횟수가 9번에서 13번으로 늘었고, 한 번에 쓰는 돈은 비슷해요.");
+        assertThat(SpendingAnalysisService.explanation(2, 3, 20_000, 60_000))
+                .isEqualTo("횟수가 2번에서 3번으로 늘었고, 한 번에 쓰는 돈은 더 커졌어요.");
+        assertThat(SpendingAnalysisService.explanation(2, 4, 40_000, 50_000))
+                .isEqualTo("횟수가 2번에서 4번으로 늘었고, 한 번에 쓰는 돈은 더 작아졌어요.");
+        assertThat(SpendingAnalysisService.explanation(5, 5, 50_000, 80_000))
+                .isEqualTo("횟수는 5번으로 같지만, 한 번에 쓰는 돈이 커졌어요.");
+        assertThat(SpendingAnalysisService.explanation(6, 4, 60_000, 80_000))
+                .isEqualTo("횟수는 6번에서 4번으로 줄었지만, 한 번에 쓰는 돈이 커졌어요.");
     }
 
     @Test
