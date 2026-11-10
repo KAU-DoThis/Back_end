@@ -1,8 +1,10 @@
 package com.dothis.fintris.analysis.service;
 
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse;
+import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.BiggestIncrease;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CategoryItem;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CompareTo;
+import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.TimeOfDay;
 import com.dothis.fintris.transaction.repository.CategorySpent;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -13,10 +15,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.YearMonth;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -93,6 +100,61 @@ class SpendingAnalysisServiceTest {
         assertThat(response.previousSpent()).isNull();
         assertThat(response.changeRate()).isNull();
         assertThat(response.categories().getFirst().changeAmount()).isNull();
+    }
+
+    @Test
+    @DisplayName("가장 많이 늘어난 카테고리는 미분류를 빼고 고르고, 시간대별 횟수를 센다")
+    void biggestIncrease() {
+        givenSpent(SEPTEMBER, List.of(
+                new CategorySpent(null, null, null, 3L, 300_000L),
+                new CategorySpent(2L, "DELIVERY_DINING", "배달/외식", 4L, 182_000L),
+                new CategorySpent(3L, "CAFE", "카페/간식", 5L, 30_000L)));
+        givenSpent(YearMonth.of(2026, 8), List.of(
+                new CategorySpent(2L, "DELIVERY_DINING", "배달/외식", 3L, 132_000L),
+                new CategorySpent(3L, "CAFE", "카페/간식", 2L, 10_000L)));
+        when(transactionRepository.findSpentTimes(eq(USER_ID), eq(2L), eq(SEPTEMBER.atDay(1).atStartOfDay()),
+                eq(SEPTEMBER.plusMonths(1).atDay(1).atStartOfDay()))).thenReturn(List.of(
+                LocalDateTime.of(2026, 9, 3, 12, 0), LocalDateTime.of(2026, 9, 5, 22, 30),
+                LocalDateTime.of(2026, 9, 9, 23, 0), LocalDateTime.of(2026, 9, 12, 1, 0)));
+
+        BiggestIncrease biggest = spendingAnalysisService.getSpending(USER_ID, SEPTEMBER).biggestIncrease();
+
+        assertThat(biggest.categoryId()).isEqualTo(2L);
+        assertThat(biggest.changeAmount()).isEqualTo(50_000L);
+        assertThat(biggest.previousAmount()).isEqualTo(132_000L);
+        assertThat(biggest.changeRate()).isEqualTo(38);
+        assertThat(biggest.timeOfDay()).extracting(TimeOfDay::slot, TimeOfDay::count).containsExactly(
+                tuple("MORNING", 0L), tuple("LUNCH", 1L), tuple("EVENING", 0L), tuple("NIGHT", 3L));
+        assertThat(biggest.timeSummary()).isEqualTo("4번 중 3번이 밤 10시 이후였어요");
+    }
+
+    @Test
+    @DisplayName("늘어난 카테고리가 없으면 biggestIncrease는 null")
+    void noIncrease() {
+        givenSpent(SEPTEMBER, List.of(new CategorySpent(2L, "DELIVERY_DINING", "배달/외식", 1L, 10_000L)));
+        givenSpent(YearMonth.of(2026, 8), List.of(new CategorySpent(2L, "DELIVERY_DINING", "배달/외식", 2L, 20_000L)));
+
+        assertThat(spendingAnalysisService.getSpending(USER_ID, SEPTEMBER).biggestIncrease()).isNull();
+    }
+
+    @Test
+    @DisplayName("한 시간대에 절반 이상 몰리지 않으면 시간대 요약은 null")
+    void timeSummarySpread() {
+        assertThat(SpendingAnalysisService.timeSummary(5, Map.of(TimeSlot.LUNCH, 2L, TimeSlot.NIGHT, 2L, TimeSlot.MORNING, 1L)))
+                .isNull();
+        // 같은 횟수면 이른 시간대를 말한다 (서비스는 EnumMap으로 넘긴다)
+        assertThat(SpendingAnalysisService.timeSummary(4, new EnumMap<>(Map.of(TimeSlot.LUNCH, 2L, TimeSlot.NIGHT, 2L))))
+                .isEqualTo("4번 중 2번이 점심 11~15시였어요");
+    }
+
+    @Test
+    @DisplayName("시간대 경계: 6·11·15·22시는 다음 구간, 새벽은 밤")
+    void timeSlotBoundaries() {
+        assertThat(TimeSlot.of(LocalTime.of(5, 59))).isEqualTo(TimeSlot.NIGHT);
+        assertThat(TimeSlot.of(LocalTime.of(6, 0))).isEqualTo(TimeSlot.MORNING);
+        assertThat(TimeSlot.of(LocalTime.of(11, 0))).isEqualTo(TimeSlot.LUNCH);
+        assertThat(TimeSlot.of(LocalTime.of(15, 0))).isEqualTo(TimeSlot.EVENING);
+        assertThat(TimeSlot.of(LocalTime.of(22, 0))).isEqualTo(TimeSlot.NIGHT);
     }
 
     @Test
