@@ -5,7 +5,9 @@ import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.BiggestIncrease;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CategoryItem;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CompareTo;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.Period;
+import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.Recurring;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.TimeOfDay;
+import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.repository.CategorySpent;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,8 +34,10 @@ public class SpendingAnalysisService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     static final String UNCLASSIFIED_CODE = "UNCLASSIFIED";
     static final String UNCLASSIFIED_NAME = "미분류";
+    private static final int RECURRING_HISTORY_MONTHS = 3;
 
     private final TransactionRepository transactionRepository;
+    private final RecurringSpendingFinder recurringSpendingFinder;
 
     public SpendingAnalysisResponse getSpending(Long userId, YearMonth month) {
         LocalDate today = LocalDate.now(KST);
@@ -64,7 +68,14 @@ public class SpendingAnalysisService {
         return new SpendingAnalysisResponse(period, compareTo, totalSpent, previousSpent, changeAmount,
                 previousAvailable ? changeRate(changeAmount, previousSpent) : null, categories,
                 previousAvailable ? biggestIncrease(userId, period, current, previousByCategory) : null,
-                previousAvailable, current.isEmpty());
+                recurring(userId, period), previousAvailable, current.isEmpty());
+    }
+
+    // 고정지출은 서로 다른 달 3번 이상이라 기간 앞 3달치를 함께 본다
+    private List<Recurring> recurring(Long userId, Period period) {
+        List<Transaction> history = transactionRepository.findSpent(userId,
+                period.from().minusMonths(RECURRING_HISTORY_MONTHS).atStartOfDay(), period.to().plusDays(1).atStartOfDay());
+        return recurringSpendingFinder.find(history, period.from());
     }
 
     // 미분류는 무엇이 늘었는지 말할 수 없어 뺀다

@@ -17,6 +17,7 @@ public record SpendingAnalysisResponse(
         @Schema(description = "쓴 돈이 많은 순. 분류 전 거래는 categoryId=null, code=UNCLASSIFIED") List<CategoryItem> categories,
         @Schema(description = "지난 기간보다 가장 많이 늘어난 카테고리(미분류 제외). 늘어난 곳이 없거나 비교할 수 없으면 null")
         BiggestIncrease biggestIncrease,
+        @Schema(description = "반복 지출. REPEAT → DUPLICATE_SUBSCRIPTION → FIXED 순, 없으면 빈 목록") List<Recurring> recurring,
         boolean previousAvailable,
         @Schema(description = "기간 안에 쓴 돈이 없으면 true (빈 상태 화면)") boolean empty
 ) {
@@ -55,6 +56,14 @@ public record SpendingAnalysisResponse(
             List<TimeOfDay> timeOfDay,
             @Schema(example = "13번 중 9번이 밤 10시 이후였어요") String timeSummary,
             @Schema(example = "야근 식대로 표시한 2건(46,000원)은 절약 후보에서 뺐어요") String excludedNote
+    ) {
+    }
+
+    public record Recurring(
+            @Schema(description = "REPEAT · DUPLICATE_SUBSCRIPTION · FIXED", example = "REPEAT") String kind,
+            @Schema(description = "REPEAT·DUPLICATE_SUBSCRIPTION은 카테고리 이름, FIXED는 받는 곳", example = "카페/간식") String label,
+            @Schema(example = "15회 · 스타벅스 9회, 그 외 6회") String summary,
+            @Schema(description = "FIXED는 최근 낸 금액, 나머지는 기간 안 합계", example = "76500") long amount
     ) {
     }
 

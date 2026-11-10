@@ -27,7 +27,7 @@ public class AnalysisController {
 
     @Operation(summary = "소비 분석 조회",
             description = "API 명세 v4 8장. month를 빼면 이번 달. 이번 달은 지난달 같은 기간과, 지난 달은 그 전달 전체와 비교한다. "
-                    + "biggestIncrease의 explanation·excludedNote는 아직 null, recurring·savingPotential은 아직 응답에 없다")
+                    + "biggestIncrease의 explanation·excludedNote는 아직 null, savingPotential은 아직 응답에 없다")
     @GetMapping("/spending")
     public ApiResponse<SpendingAnalysisResponse> getSpending(
             @AuthenticationPrincipal Long userId,
