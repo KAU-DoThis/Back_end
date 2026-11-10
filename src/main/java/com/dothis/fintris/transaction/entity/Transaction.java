@@ -133,6 +133,11 @@ public class Transaction extends BaseEntity {
         this.classifiedBy = ClassifiedBy.USER;
     }
 
+    // 확인 필요 거래를 사용자가 맞다고 확인했다
+    public void confirmReview() {
+        this.status = TransactionStatus.CONFIRMED;
+    }
+
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);
     }

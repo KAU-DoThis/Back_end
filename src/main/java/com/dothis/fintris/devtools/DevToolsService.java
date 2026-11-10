@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Optional;
 
 // 개발 서버 전용: CODEF 연동 없이 FE가 블록 구성·이동을 시험할 수 있게 가짜 은행 계좌를 만든다
 // 계좌번호가 없어서 거래내역 동기화가 이 계좌로 CODEF를 부르지 않는다
@@ -35,19 +36,30 @@ public class DevToolsService {
     @Transactional
     public DevTestAccountResponse setTestAccount(Long userId, long balance) {
         LocalDateTime now = LocalDateTime.now(KST);
-        LinkedAccount existing = linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId)
-                .stream()
-                .filter(DevToolsService::isTestAccount)
-                .findFirst()
-                .orElse(null);
+        LinkedAccount existing = findTestAccount(userId).orElse(null);
         if (existing != null) {
             existing.markSynced(now, balance);
             return new DevTestAccountResponse(existing.getId(), balance, false);
         }
+        LinkedAccount account = createTestAccount(userId, balance, now);
+        return new DevTestAccountResponse(account.getId(), balance, true);
+    }
 
+    // 시연 거래를 붙일 테스트 계좌. 없으면 잔액 0원으로 만든다 (잔액은 setTestAccount로 정한다)
+    LinkedAccount testAccount(Long userId) {
+        return findTestAccount(userId).orElseGet(() -> createTestAccount(userId, 0, LocalDateTime.now(KST)));
+    }
+
+    private Optional<LinkedAccount> findTestAccount(Long userId) {
+        return linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).stream()
+                .filter(DevToolsService::isTestAccount)
+                .findFirst();
+    }
+
+    private LinkedAccount createTestAccount(Long userId, long balance, LocalDateTime now) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> GeneralException.of(UserErrorCode.USER_NOT_FOUND));
-        LinkedAccount account = linkedAccountRepository.save(LinkedAccount.builder()
+        return linkedAccountRepository.save(LinkedAccount.builder()
                 .user(user)
                 .institutionCode(TEST_INSTITUTION_CODE)
                 .type(LinkedAccountType.BANK)
@@ -59,7 +71,6 @@ public class DevToolsService {
                 .lastSyncedAt(now)
                 .isActive(true)
                 .build());
-        return new DevTestAccountResponse(account.getId(), balance, true);
     }
 
     private static boolean isTestAccount(LinkedAccount account) {
