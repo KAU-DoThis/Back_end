@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -44,24 +45,36 @@ public class DevDemoService {
         LinkedAccount account = devToolsService.testAccount(userId);
         List<DemoTransaction> demo = DemoTransactionFile.readClasspath(objectMapper);
 
-        Set<String> existing = new HashSet<>(transactionRepository.findExistingExternalKeys(userId,
-                demo.stream().map(DevDemoService::key).toList()));
+        // 처음 배포한 키(DEMO-n)로 이미 넣은 계정도 있어 두 형식 모두 확인한다
+        List<String> candidates = new ArrayList<>();
+        demo.forEach(transaction -> {
+            candidates.add(key(userId, transaction));
+            candidates.add(legacyKey(transaction));
+        });
+        Set<String> existing = new HashSet<>(transactionRepository.findExistingExternalKeys(userId, candidates));
         Map<String, Category> categories = categoryRepository.findAll().stream()
                 .collect(Collectors.toMap(Category::getCode, Function.identity()));
 
         List<Transaction> fresh = demo.stream()
-                .filter(transaction -> !existing.contains(key(transaction)))
-                .map(transaction -> toEntity(account, transaction, categories))
+                .filter(transaction -> !existing.contains(key(userId, transaction))
+                        && !existing.contains(legacyKey(transaction)))
+                .map(transaction -> toEntity(account, transaction, categories, key(userId, transaction)))
                 .toList();
         transactionRepository.saveAll(fresh);
         return new DevDemoTransactionsResponse(account.getId(), fresh.size(), demo.size() - fresh.size());
     }
 
-    private static String key(DemoTransaction transaction) {
+    // 사용자 ID를 넣는다. DB에 external_key 하나만으로 건 예전 유일 제약이 남아 있으면 계정끼리 같은 키가 겹쳐 실패한다
+    static String key(Long userId, DemoTransaction transaction) {
+        return KEY_PREFIX + userId + "-" + transaction.id();
+    }
+
+    private static String legacyKey(DemoTransaction transaction) {
         return KEY_PREFIX + transaction.id();
     }
 
-    private static Transaction toEntity(LinkedAccount account, DemoTransaction demo, Map<String, Category> categories) {
+    private static Transaction toEntity(LinkedAccount account, DemoTransaction demo, Map<String, Category> categories,
+                                        String externalKey) {
         Category category = demo.categoryCode() == null ? null : categories.get(demo.categoryCode());
         return Transaction.builder()
                 .user(account.getUser())
@@ -78,7 +91,7 @@ public class DevDemoService {
                 .classifiedBy(ClassifiedBy.AUTO)
                 .excluded(demo.excluded())
                 .isCanceled(demo.canceled())
-                .externalKey(key(demo))
+                .externalKey(externalKey)
                 .build();
     }
 }
