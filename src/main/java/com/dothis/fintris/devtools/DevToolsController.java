@@ -24,6 +24,8 @@ public class DevToolsController {
 
     private final DevToolsService devToolsService;
     private final DevDemoService devDemoService;
+    private final DevBlocksService devBlocksService;
+    private final DevOnboardingResetService devOnboardingResetService;
 
     @Operation(summary = "테스트 계좌 잔액 설정",
             description = "로그인한 계정에 가짜 은행 계좌를 만들거나 잔액을 바꾼다. CODEF를 부르지 않는다")
@@ -31,6 +33,26 @@ public class DevToolsController {
     public ApiResponse<DevTestAccountResponse> setTestAccount(@AuthenticationPrincipal Long userId,
                                                               @Valid @RequestBody DevTestAccountRequest request) {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, devToolsService.setTestAccount(userId, request.balance()));
+    }
+
+    @Operation(summary = "온보딩(블록 구성) 초기화",
+            description = "같은 계정으로 04 블록 구성부터 다시 시연할 수 있게 블록·이동 기록·나눌 돈·블록 확정 여부를 지운다. "
+                    + "연동 계좌(잔액)·거래(시연 거래 포함)·동의·튜토리얼은 그대로 둔다. "
+                    + "거래는 남기고 블록 반영만 푼다")
+    @PostMapping("/onboarding/reset")
+    public ApiResponse<DevOnboardingResetResponse> resetOnboarding(@AuthenticationPrincipal Long userId) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK, devOnboardingResetService.reset(userId));
+    }
+
+    @Operation(summary = "블록 확정 시각 옮기기",
+            description = "확정 시각을 과거로 옮기고, 그 뒤 출금을 블록에 바로 반영한다(늦추면 되돌린다). "
+                    + "시연 거래를 넣고 블록을 확정한 뒤, 예: 2026-11-01T00:00:00으로 옮기면 11월 지출이 블록에서 빠진 모습이 된다. "
+                    + "블록 확정 전이면 409 DEV_BLOCKS_NOT_CONFIRMED")
+    @PutMapping("/blocks-confirmed-at")
+    public ApiResponse<DevBlocksConfirmedAtResponse> moveBlocksConfirmedAt(
+            @AuthenticationPrincipal Long userId, @Valid @RequestBody DevBlocksConfirmedAtRequest request) {
+        return ApiResponse.onSuccess(GeneralSuccessCode.OK,
+                devBlocksService.moveBlocksConfirmedAt(userId, request.confirmedAt()));
     }
 
     @Operation(summary = "시연 거래 3개월치 넣기",
