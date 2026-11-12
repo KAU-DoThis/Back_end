@@ -47,14 +47,17 @@ public class RecurringSpendingFinder {
                 .filter(t -> !t.getOccurredAt().toLocalDate().isBefore(periodFrom))
                 .toList();
         Map<String, List<Transaction>> byCategory = inPeriod.stream()
-                .filter(t -> t.getCategory() != null && t.getMerchantOrPayee() != null)
+                .filter(t -> t.getCategory() != null)
                 .collect(Collectors.groupingBy(t -> t.getCategory().getName(), LinkedHashMap::new, Collectors.toList()));
 
         List<Recurring> repeats = new ArrayList<>();
         List<Recurring> duplicates = new ArrayList<>();
         byCategory.forEach((name, transactions) -> {
+            // 가맹점 이름이 없는 거래는 가맹점별로 묶지 않고 횟수·금액에만 넣는다
             Map<String, List<Transaction>> byMerchant = transactions.stream()
+                    .filter(t -> t.getMerchantOrPayee() != null)
                     .collect(Collectors.groupingBy(t -> payeeKey(t.getMerchantOrPayee())));
+            List<Transaction> unnamed = transactions.stream().filter(t -> t.getMerchantOrPayee() == null).toList();
             long amount = transactions.stream().mapToLong(Transaction::getAmount).sum();
             if (SUBSCRIPTION_CODE.equals(transactions.getFirst().getCategory().getCode())) {
                 if (byMerchant.size() >= 2) {
@@ -70,10 +73,11 @@ public class RecurringSpendingFinder {
             }
             // 고정지출로 잡힌 가맹점은 반복 소비로 다시 세지 않는다
             byMerchant.keySet().removeAll(fixedPayees);
-            int count = byMerchant.values().stream().mapToInt(List::size).sum();
+            int count = byMerchant.values().stream().mapToInt(List::size).sum() + unnamed.size();
             if (count >= REPEAT_MIN_COUNT && count * 100L >= (long) inPeriod.size() * REPEAT_MIN_SHARE_PERCENT) {
-                List<Transaction> top = byMerchant.values().stream().max(Comparator.comparingInt(List::size)).orElseThrow();
-                long repeatAmount = byMerchant.values().stream().flatMap(List::stream).mapToLong(Transaction::getAmount).sum();
+                List<Transaction> top = byMerchant.values().stream().max(Comparator.comparingInt(List::size)).orElse(List.of());
+                long repeatAmount = byMerchant.values().stream().flatMap(List::stream).mapToLong(Transaction::getAmount).sum()
+                        + unnamed.stream().mapToLong(Transaction::getAmount).sum();
                 repeats.add(new Recurring("REPEAT", name, repeatSummary(count, top), repeatAmount));
             }
         });
@@ -88,8 +92,11 @@ public class RecurringSpendingFinder {
         return result;
     }
 
-    // "15회 · 스타벅스 9회, 그 외 6회"
+    // "15회 · 스타벅스 9회, 그 외 6회". 가맹점 이름이 있는 거래가 없으면 "15회"
     private String repeatSummary(int total, List<Transaction> top) {
+        if (top.isEmpty()) {
+            return total + "회";
+        }
         String summary = total + "회 · " + top.getFirst().getMerchantOrPayee() + " " + top.size() + "회";
         return total > top.size() ? summary + ", 그 외 " + (total - top.size()) + "회" : summary;
     }
