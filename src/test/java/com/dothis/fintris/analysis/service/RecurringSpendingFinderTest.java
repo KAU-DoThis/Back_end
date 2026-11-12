@@ -52,6 +52,31 @@ class RecurringSpendingFinderTest {
     }
 
     @Test
+    @DisplayName("가맹점 이름이 없는 거래도 반복 소비 횟수·금액에 넣고 '그 외'로 센다")
+    void repeatWithUnnamed() {
+        List<Transaction> history = new ArrayList<>();
+        for (int day = 1; day <= 3; day++) {
+            history.add(spent(CAFE, "스타벅스", 10, day, 5_000));
+        }
+        history.add(spent(CAFE, null, 10, 10, 3_000));
+
+        assertThat(finder.find(history, PERIOD_FROM))
+                .containsExactly(new Recurring("REPEAT", "카페/간식", "4회 · 스타벅스 3회, 그 외 1회", 18_000));
+    }
+
+    @Test
+    @DisplayName("가맹점 이름이 있는 거래가 없으면 반복 소비 요약은 횟수만 보여준다")
+    void repeatAllUnnamed() {
+        List<Transaction> history = new ArrayList<>();
+        for (int day = 1; day <= 4; day++) {
+            history.add(spent(CAFE, null, 10, day, 5_000));
+        }
+
+        assertThat(finder.find(history, PERIOD_FROM))
+                .containsExactly(new Recurring("REPEAT", "카페/간식", "4회", 20_000));
+    }
+
+    @Test
     @DisplayName("3번까지는 반복 소비가 아니고, 기간 앞 거래는 세지 않는다")
     void notRepeat() {
         List<Transaction> history = new ArrayList<>(List.of(spent(CAFE, "스타벅스", 9, 28, 5_000)));
