@@ -1,7 +1,7 @@
 # FINTRIS 개발 서버(EC2 1대) 구성 — 아키텍처 "그림 1. 개발 단계" 기준
 #
 #   사용자 ──443──> caddy ──> main ──> mysql
-#                              └────> agent (AI 레포에서 추가 예정)
+#                              └────> agent (AI 서버, 서버에서 빌드한 이미지)
 #
 # 서버의 /opt/fintris 에 이 파일과 .env, Caddyfile, deploy.sh가 함께 있다.
 # 배포는 GitHub Actions가 deploy.sh를 실행해서 한다. 손으로 띄울 때는 deploy/README.md 참고.
@@ -34,6 +34,8 @@ services:
       CODEF_PUBLIC_KEY: ${CODEF_PUBLIC_KEY:-}
       CODEF_CONNECTED_ID_KEY: ${CODEF_CONNECTED_ID_KEY:?CODEF_CONNECTED_ID_KEY가 .env에 없습니다}
       AI_BASE_URL: ${AI_BASE_URL:-http://localhost:8000}
+      # main ↔ agent 내부 인증. AI를 부를 때 X-Internal-Token 헤더로 보낸다 (없거나 다르면 agent가 401)
+      FINTRIS_INTERNAL_TOKEN: ${FINTRIS_INTERNAL_TOKEN:?FINTRIS_INTERNAL_TOKEN가 .env에 없습니다}
       # 개발 서버 테스트용 API(/dev/**). 실서비스 서버에서는 넣지 않는다
       DEV_TOOLS_ENABLED: ${DEV_TOOLS_ENABLED:-false}
     # 서버 자신(127.0.0.1)에서만 열린다. 외부 공개는 caddy가 맡는다.
@@ -81,14 +83,24 @@ services:
       - caddy-config:/config
     networks: [edge]
 
-  # AI Agent 서버(FastAPI)는 AI 레포에서 이미지가 준비되면 주석을 푼다.
-  # DB 관련 값은 절대 넘기지 않는다. (Agent가 뚫려도 DB에 못 닿게)
-  # agent:
-  #   image: ${ECR_REGISTRY}/fintris-agent:${AGENT_IMAGE_TAG}
-  #   restart: unless-stopped
-  #   environment:
-  #     GEMINI_API_KEY: ${GEMINI_API_KEY}
-  #   networks: [ai]
+  # AI Agent 서버(FastAPI, AI 레포). DB·CODEF·JWT 값은 절대 넘기지 않는다 (Agent가 뚫려도 DB에 못 닿게)
+  # 이미지는 AI 담당이 서버에서 직접 빌드한다(ECR에 없음). AI 코드가 바뀌면 AI 담당이 다시 빌드하고 AGENT_IMAGE_TAG를 바꾼다
+  # deploy.sh 헬스체크는 main만 본다. agent는 따로 확인: docker exec fintris-main-1 curl -s http://agent:8000/health
+  agent:
+    image: ${ECR_REGISTRY:?}/fintris-agent:${AGENT_IMAGE_TAG:?AGENT_IMAGE_TAG가 .env에 없습니다}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      FINTRIS_INTERNAL_TOKEN: ${FINTRIS_INTERNAL_TOKEN:?}
+      # 초불이(room·chat)용 LLM. Jeff·sLM 큐는 시연에서 쓰지 않는다 (켤 때 큐 주소·권한 키를 여기에 추가)
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+    # 포트를 밖으로 열지 않는다. main만 ai 네트워크로 http://agent:8000 에 닿는다
+    mem_limit: 512m
+    networks: [ai]
 
 networks:
   edge:

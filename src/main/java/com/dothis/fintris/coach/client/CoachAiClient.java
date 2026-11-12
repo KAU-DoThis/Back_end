@@ -17,7 +17,7 @@ import java.util.Optional;
 @Component
 public class CoachAiClient {
 
-    // TBD(AI 담당과 확정): 경로와 요청·응답 형식
+    // AI 레포 app/api/v1/coach_chat.py 기준
     static final String CHAT_PATH = "/internal/ai/coach/chat";
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(40);
@@ -38,6 +38,12 @@ public class CoachAiClient {
             CoachAiResponse response = restClient.post()
                     .uri(aiProperties.getBaseUrl() + CHAT_PATH)
                     .contentType(MediaType.APPLICATION_JSON)
+                    .headers(headers -> {
+                        String token = aiProperties.getInternalToken();
+                        if (token != null && !token.isBlank()) {
+                            headers.set(INTERNAL_TOKEN_HEADER, token);
+                        }
+                    })
                     .body(request)
                     .retrieve()
                     .body(CoachAiResponse.class);

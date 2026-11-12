@@ -39,6 +39,8 @@ codef:
 
 ai:
   base-url: ${AI_BASE_URL:http://localhost:8000}
+  # 없으면 헤더 없이 보내고 AI 서버가 401을 준다 (초불이는 고정 문장으로 답함)
+  internal-token: ${FINTRIS_INTERNAL_TOKEN:}
 
 sync:
   scheduler:
