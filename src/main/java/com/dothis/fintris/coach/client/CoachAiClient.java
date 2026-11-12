@@ -21,6 +21,7 @@ public class CoachAiClient {
     static final String CHAT_PATH = "/internal/ai/coach/chat";
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(40);
+    static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
 
     private final AiProperties aiProperties;
     private final RestClient restClient;
