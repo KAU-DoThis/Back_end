@@ -20,8 +20,7 @@ public class CoachAiClient {
     // AI 레포 app/api/v1/coach_chat.py 기준
     static final String CHAT_PATH = "/internal/ai/coach/chat";
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
-    private static final Duration READ_TIMEOUT = Duration.ofSeconds(15);
-    static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(40);
 
     private final AiProperties aiProperties;
     private final RestClient restClient;
