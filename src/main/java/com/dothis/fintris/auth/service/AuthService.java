@@ -148,10 +148,13 @@ public class AuthService {
     private TokenResponse issueTokens(User user) {
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
         String refreshToken = jwtTokenProvider.createRefreshToken(user.getId());
+        LocalDateTime now = LocalDateTime.now();
+        // 만료된 행이 계속 쌓이지 않게 새로 발급할 때 이 사용자의 지난 토큰을 지운다
+        refreshTokenRepository.deleteExpiredByUserId(user.getId(), now);
         refreshTokenRepository.save(RefreshToken.builder()
                 .user(user)
                 .token(hash(refreshToken))
-                .expiresAt(LocalDateTime.now().plusSeconds(jwtTokenProvider.getRefreshExpMs() / 1000))
+                .expiresAt(now.plusSeconds(jwtTokenProvider.getRefreshExpMs() / 1000))
                 .build());
         return new TokenResponse(accessToken, refreshToken);
     }
