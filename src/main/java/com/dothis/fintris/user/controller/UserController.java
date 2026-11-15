@@ -13,6 +13,7 @@ import com.dothis.fintris.user.dto.UserSettingUpdateRequest;
 import com.dothis.fintris.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class UserController {
     private final UserService userService;
 
     @Operation(summary = "동의 항목 목록", description = "약관 동의 화면(00-2)용. 인증 불필요")
+    @SecurityRequirements
     @GetMapping("/consents/items")
     public ApiResponse<ConsentItemListResponse> getConsentItems() {
         return ApiResponse.onSuccess(GeneralSuccessCode.OK, userService.getConsentItems());
