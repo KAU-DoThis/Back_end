@@ -24,14 +24,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final String LINK_PATH = WebConfig.API_PREFIX + "/linked-accounts";
     private static final String COACH_MESSAGE_PATH = WebConfig.API_PREFIX + "/coach/room/messages";
 
-    // 로그인·가입·토큰 갱신: IP당 1분에 30번
-    private static final int AUTH_LIMIT = 30;
+    // 로그인·가입·토큰 갱신: IP당 1분에 120번 (같은 와이파이를 쓰는 사람들이 한도를 나눠 쓴다)
+    private static final int AUTH_LIMIT = 120;
     private static final Duration AUTH_WINDOW = Duration.ofMinutes(1);
-    // 금융기관 연동: 사용자당 10분에 5번
-    private static final int LINK_LIMIT = 5;
+    // 금융기관 연동: 사용자당 10분에 10번
+    private static final int LINK_LIMIT = 10;
     private static final Duration LINK_WINDOW = Duration.ofMinutes(10);
-    // 초불이에게 말 걸기: 사용자당 1분에 20번
-    private static final int COACH_LIMIT = 20;
+    // 초불이에게 말 걸기: 사용자당 1분에 60번
+    private static final int COACH_LIMIT = 60;
     private static final Duration COACH_WINDOW = Duration.ofMinutes(1);
 
     private final RateLimiter rateLimiter = new RateLimiter(System::currentTimeMillis);
