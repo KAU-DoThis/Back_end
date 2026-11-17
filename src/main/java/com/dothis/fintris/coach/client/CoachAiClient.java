@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -54,7 +55,10 @@ public class CoachAiClient {
             }
             return Optional.of(response);
         } catch (RestClientException e) {
-            log.warn("초불이 AI 호출 실패. userId={}, cause={}", request.userId(), e.getMessage());
+            // 예외 문구에는 AI 서버 응답 본문(사용자가 쓴 문장 포함)이 섞일 수 있어 상태 코드나 예외 종류만 남긴다
+            String cause = e instanceof RestClientResponseException responseError
+                    ? "HTTP " + responseError.getStatusCode().value() : e.getClass().getSimpleName();
+            log.warn("초불이 AI 호출 실패. userId={}, cause={}", request.userId(), cause);
             return Optional.empty();
         }
     }

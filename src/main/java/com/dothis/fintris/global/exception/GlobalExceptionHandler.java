@@ -81,7 +81,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(value = DataIntegrityViolationException.class)
     public ResponseEntity<Object> onDataIntegrityViolationException(DataIntegrityViolationException e,
                                                                     HttpServletRequest request) {
-        log.warn("DataIntegrityViolationException: {}", e.getMostSpecificCause().getMessage());
+        // DB 오류 문구에 겹친 값(이메일 등)이 들어 있어 값은 빼고 남긴다
+        log.warn("DataIntegrityViolationException: {}", String.valueOf(e.getMostSpecificCause().getMessage())
+                .replaceAll("Duplicate entry '.*' for key", "Duplicate entry for key"));
         return handleExceptionInternal(e, GeneralErrorCode.CONFLICT, null, request);
     }
 
