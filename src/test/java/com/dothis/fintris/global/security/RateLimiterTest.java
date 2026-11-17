@@ -36,8 +36,26 @@ class RateLimiterTest {
         assertThat(rateLimiter.tryAcquire("a", 1, MINUTE)).isTrue();
         assertThat(rateLimiter.tryAcquire("a", 1, MINUTE)).isFalse();
 
-        now.set(MINUTE.toMillis());
+        now.set(MINUTE.toMillis() - 1);
+        assertThat(rateLimiter.tryAcquire("a", 1, MINUTE)).isFalse();
 
+        now.set(MINUTE.toMillis());
         assertThat(rateLimiter.tryAcquire("a", 1, MINUTE)).isTrue();
+    }
+
+    @Test
+    @DisplayName("기록이 많아져 정리해도 아직 시간이 안 지난 키는 계속 막는다")
+    void keepsActiveKeyAfterCleanup() {
+        Duration twoMinutes = Duration.ofMinutes(2);
+        assertThat(rateLimiter.tryAcquire("active", 1, twoMinutes)).isTrue();
+        for (int i = 0; i < RateLimiter.CLEANUP_THRESHOLD; i++) {
+            rateLimiter.tryAcquire("old" + i, 1, MINUTE);
+        }
+
+        // old 키들은 만료됐고 active는 아직이다. 이 요청에서 정리가 돈다
+        now.set(MINUTE.toMillis());
+        rateLimiter.tryAcquire("trigger", 1, MINUTE);
+
+        assertThat(rateLimiter.tryAcquire("active", 1, twoMinutes)).isFalse();
     }
 }
