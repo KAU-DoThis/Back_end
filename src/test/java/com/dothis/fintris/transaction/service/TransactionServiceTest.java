@@ -12,6 +12,8 @@ import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
 import com.dothis.fintris.transaction.dto.TransactionListResponse;
 import com.dothis.fintris.transaction.dto.TransactionResponse;
+import com.dothis.fintris.transaction.dto.TransactionReviewRequest;
+import com.dothis.fintris.transaction.dto.TransactionReviewResponse;
 import com.dothis.fintris.transaction.entity.ClassifiedBy;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionDirection;
@@ -307,5 +309,59 @@ class TransactionServiceTest {
                 .extracting(e -> ((GeneralException) e).getCode())
                 .isEqualTo(TransactionErrorCode.TRANSACTION_FORBIDDEN);
         verify(categoryRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("확인 필요 거래를 유지하면 확정되고 블록 반영은 그대로다")
+    void reviewKeep() {
+        Transaction transaction = transaction(user(USER_ID)).status(TransactionStatus.NEEDS_REVIEW).build();
+        given(transaction);
+
+        TransactionReviewResponse response = service.review(USER_ID, TRANSACTION_ID, TransactionReviewRequest.Action.KEEP);
+
+        assertThat(transaction.getStatus()).isEqualTo(TransactionStatus.CONFIRMED);
+        assertThat(response.transaction()).isNotNull();
+        verify(blockReflector, never()).reconcile(any(), any());
+        verify(transactionRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("직접 입력한 확인 필요 거래를 지우면 블록에서 뺀 돈을 돌려주고 삭제한다")
+    void reviewDeleteManual() {
+        Transaction transaction = transaction(user(USER_ID)).source(TransactionSource.MANUAL)
+                .status(TransactionStatus.NEEDS_REVIEW).build();
+        given(transaction);
+        LocalDateTime confirmedAt = LocalDateTime.of(2026, 10, 1, 0, 0);
+        when(blockReflector.blocksConfirmedAt(USER_ID)).thenReturn(Optional.of(confirmedAt));
+
+        TransactionReviewResponse response = service.review(USER_ID, TRANSACTION_ID, TransactionReviewRequest.Action.DELETE);
+
+        assertThat(transaction.isCanceled()).isTrue();
+        verify(blockReflector).reconcile(transaction, confirmedAt);
+        verify(transactionRepository).delete(transaction);
+        assertThat(response.transaction()).isNull();
+    }
+
+    @Test
+    @DisplayName("은행·카드에서 가져온 거래는 지울 수 없다 (다음 동기화에 다시 들어오므로)")
+    void reviewDeleteCodef() {
+        given(transaction(user(USER_ID)).status(TransactionStatus.NEEDS_REVIEW).build());
+
+        assertThatThrownBy(() -> service.review(USER_ID, TRANSACTION_ID, TransactionReviewRequest.Action.DELETE))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(TransactionErrorCode.TRANSACTION_NOT_DELETABLE);
+        verify(transactionRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("확인 필요 상태가 아닌 거래는 처리할 수 없다")
+    void reviewNotNeeded() {
+        given(transaction(user(USER_ID)).build());
+
+        assertThatThrownBy(() -> service.review(USER_ID, TRANSACTION_ID, TransactionReviewRequest.Action.KEEP))
+                .isInstanceOf(GeneralException.class)
+                .extracting(e -> ((GeneralException) e).getCode())
+                .isEqualTo(TransactionErrorCode.TRANSACTION_NOT_REVIEWABLE);
     }
 }

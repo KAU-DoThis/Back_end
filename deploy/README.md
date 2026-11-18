@@ -141,8 +141,21 @@ CODEF_CLIENT_SECRET=
 CODEF_PUBLIC_KEY=
 # connectedId 암호화 키. Base64로 된 32바이트 (비어 있으면 앱이 시작되지 않는다)
 CODEF_CONNECTED_ID_KEY=
-# 자체 AI 서버(FastAPI) 주소
-AI_BASE_URL=
+# 개발 서버 테스트용 API(/dev/**). 실서비스 서버에서는 넣지 않는다
+DEV_TOOLS_ENABLED=true
+
+# ---------- AI 서버(agent) ----------
+# compose 안의 agent 컨테이너 주소
+AI_BASE_URL=http://agent:8000
+# main ↔ agent 내부 인증 토큰 (openssl rand -base64 48). 두 컨테이너에 같은 값이 들어간다. 없으면 배포가 멈춘다
+FINTRIS_INTERNAL_TOKEN=
+# agent 이미지 태그. AI 담당이 서버에서 빌드한 이미지(ECR에 없음)
+AGENT_IMAGE_TAG=
+# 초불이(room·chat)용 LLM (AI 담당이 채운다)
+LLM_PROVIDER=
+LLM_BASE_URL=
+LLM_MODEL=
+LLM_API_KEY=
 ```
 
 `JWT_SECRET`, DB 비밀번호는 `openssl rand -base64 48`, `CODEF_CONNECTED_ID_KEY`는 `openssl rand -base64 32`로 만든다. 이 값들은 디스코드·카톡에 올리지 않는다.

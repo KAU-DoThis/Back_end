@@ -16,7 +16,10 @@ import com.dothis.fintris.transaction.dto.TransactionListResponse.Period;
 import com.dothis.fintris.transaction.dto.TransactionListResponse.Summary;
 import com.dothis.fintris.transaction.dto.TransactionResponse;
 import com.dothis.fintris.transaction.dto.TransactionResponse.AccountItem;
+import com.dothis.fintris.transaction.dto.TransactionReviewRequest;
+import com.dothis.fintris.transaction.dto.TransactionReviewResponse;
 import com.dothis.fintris.transaction.entity.Transaction;
+import com.dothis.fintris.transaction.entity.TransactionSource;
 import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.repository.DayTotal;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
@@ -63,6 +66,28 @@ public class TransactionService {
         transaction.changeCategoryByUser(category);
         blockReflector.reconcile(transaction, blockReflector.blocksConfirmedAt(userId).orElse(null));
         return TransactionResponse.from(transaction);
+    }
+
+    // 확인 필요 거래 처리 (09 내역). KEEP은 확정, DELETE는 블록에서 뺀 돈을 돌려주고 지운다
+    // 은행·카드에서 가져온 거래는 지워도 다음 동기화에 다시 들어오므로 직접 입력·결제 알림 거래만 지운다
+    @Transactional
+    public TransactionReviewResponse review(Long userId, Long transactionId, TransactionReviewRequest.Action action) {
+        Transaction transaction = ownedTransaction(userId, transactionId);
+        if (transaction.getStatus() != TransactionStatus.NEEDS_REVIEW) {
+            throw GeneralException.of(TransactionErrorCode.TRANSACTION_NOT_REVIEWABLE);
+        }
+        if (action == TransactionReviewRequest.Action.KEEP) {
+            transaction.confirmReview();
+            return new TransactionReviewResponse(transactionId, action, TransactionResponse.from(transaction));
+        }
+        if (transaction.getSource() == TransactionSource.CODEF) {
+            throw GeneralException.of(TransactionErrorCode.TRANSACTION_NOT_DELETABLE);
+        }
+        // 취소로 표시하면 반영 대상이 아니게 되어 reconcile이 블록에 뺀 금액을 돌려준다
+        transaction.cancel();
+        blockReflector.reconcile(transaction, blockReflector.blocksConfirmedAt(userId).orElse(null));
+        transactionRepository.delete(transaction);
+        return new TransactionReviewResponse(transactionId, action, null);
     }
 
     private Transaction ownedTransaction(Long userId, Long transactionId) {

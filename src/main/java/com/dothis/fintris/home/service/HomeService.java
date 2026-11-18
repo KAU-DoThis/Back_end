@@ -98,6 +98,12 @@ public class HomeService {
                 monthStart.plusMonths(1).atStartOfDay(), account.getId(), null).spent();
     }
 
+    // 오늘 남은 금액 (홈 dailyGuide.todayRemaining과 같은 값). 빠른 입력 저장 응답 등에서 쓴다. 기본 블록 기간이 없으면 null
+    public Long todayRemaining(Long userId) {
+        HomeResponse.DailyGuide guide = getDailyGuide(userId);
+        return guide == null ? null : guide.todayRemaining();
+    }
+
     // 블록 상세(사용형)와 같은 계산: "오늘 가능"은 아침 기준이라 오늘 기본 블록에서 뺀 돈을 되돌린 잔액으로 계산한다
     private HomeResponse.DailyGuide getDailyGuide(Long userId) {
         Block defaultBlock = blockRepository.findFirstByUser_IdAndIsDefaultTrueAndDeletedAtIsNull(userId)

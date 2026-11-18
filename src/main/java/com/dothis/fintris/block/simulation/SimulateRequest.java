@@ -4,7 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.util.List;
 
@@ -19,7 +19,7 @@ public record SimulateRequest(
             @Schema(description = "보내는 블록", example = "3") Long fromBlockId,
             @Schema(description = "보내는 나눌 돈", example = "null") Long fromWaitingFundId,
             @Schema(description = "받는 블록", example = "1") @NotNull Long toBlockId,
-            @Schema(description = "금액(원)", example = "50000") @NotNull @Positive Long amount
+            @Schema(description = "금액(원). 0원이면 이동 없이 [부족한 만큼](shortfall)만 받는다", example = "50000") @NotNull @PositiveOrZero Long amount
     ) {
     }
 }
