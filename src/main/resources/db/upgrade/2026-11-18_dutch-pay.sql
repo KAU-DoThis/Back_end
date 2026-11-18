@@ -12,15 +12,12 @@ SET NAMES utf8mb4;
 CREATE TABLE dutch_pays (
     dutch_pay_id        BIGINT       NOT NULL AUTO_INCREMENT,
     user_id             BIGINT       NOT NULL,
-    block_id            BIGINT       NULL COMMENT '받은 돈을 돌려놓은 블록. 가장 큰 결제의 블록',
-    returned_amount     BIGINT       NOT NULL DEFAULT 0 COMMENT '그 블록에 더한 금액(받은 돈, 결제 합까지). 수정·해제 때 이만큼 되돌린다',
     version             BIGINT       NOT NULL DEFAULT 0 COMMENT '@Version 낙관적 잠금',
     created_at          DATETIME(6)  NOT NULL,
     updated_at          DATETIME(6)  NOT NULL,
     PRIMARY KEY (dutch_pay_id),
     KEY idx_dutch_pays_user (user_id),
-    CONSTRAINT fk_dutch_pays_user  FOREIGN KEY (user_id)  REFERENCES users (user_id),
-    CONSTRAINT fk_dutch_pays_block FOREIGN KEY (block_id) REFERENCES blocks (block_id)
+    CONSTRAINT fk_dutch_pays_user FOREIGN KEY (user_id) REFERENCES users (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE dutch_pay_transactions (
@@ -28,10 +25,13 @@ CREATE TABLE dutch_pay_transactions (
     dutch_pay_id             BIGINT      NOT NULL,
     transaction_id           BIGINT      NOT NULL COMMENT '결제(OUT) 또는 받은 돈(IN). 거래 하나는 더치페이 하나에만',
     my_share                 BIGINT      NULL COMMENT '결제 건의 내 몫(받은 돈을 결제 금액 비율로 뺀 값). 받은 돈 건은 NULL',
+    block_id                 BIGINT      NULL COMMENT '결제 건에서 받은 돈을 돌려놓은 블록(그 결제가 반영된 블록). 블록 미반영·받은 돈 건은 NULL',
+    returned_amount          BIGINT      NULL COMMENT '그 블록에 돌려놓은 금액(결제 금액 - 내 몫). 수정·해제 때 이만큼 되돌린다',
     created_at               DATETIME(6) NOT NULL,
     PRIMARY KEY (dutch_pay_transaction_id),
     UNIQUE KEY uk_dutch_pay_transactions_transaction (transaction_id),
     KEY idx_dutch_pay_transactions_dutch_pay (dutch_pay_id),
     CONSTRAINT fk_dutch_pay_transactions_dutch_pay   FOREIGN KEY (dutch_pay_id)   REFERENCES dutch_pays (dutch_pay_id),
-    CONSTRAINT fk_dutch_pay_transactions_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id)
+    CONSTRAINT fk_dutch_pay_transactions_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id),
+    CONSTRAINT fk_dutch_pay_transactions_block       FOREIGN KEY (block_id)       REFERENCES blocks (block_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

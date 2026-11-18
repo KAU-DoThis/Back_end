@@ -52,7 +52,8 @@ class DutchPayServiceTest {
     @InjectMocks DutchPayService service;
 
     private final User user = user(USER_ID);
-    private final Block living = block();
+    private final Block living = block(10L, "생활비", 100_000L);
+    private final Block pocket = block(11L, "용돈", 50_000L);
 
     private static User user(long id) {
         User user = User.builder().email("user" + id + "@example.com").authProvider(AuthProvider.EMAIL).build();
@@ -60,10 +61,10 @@ class DutchPayServiceTest {
         return user;
     }
 
-    private Block block() {
-        Block block = Block.builder().user(user).type(BlockType.SPENDING).name("생활비").balance(100_000L)
-                .isDefault(true).startDate(LocalDate.of(2026, 11, 1)).displayOrder(1).build();
-        ReflectionTestUtils.setField(block, "id", 10L);
+    private Block block(long id, String name, long balance) {
+        Block block = Block.builder().user(user).type(BlockType.SPENDING).name(name).balance(balance)
+                .isDefault(id == 10L).startDate(LocalDate.of(2026, 11, 1)).displayOrder((int) id).build();
+        ReflectionTestUtils.setField(block, "id", id);
         return block;
     }
 
@@ -98,10 +99,10 @@ class DutchPayServiceTest {
     }
 
     @Test
-    @DisplayName("받은 돈을 결제 비율대로 빼서 내 몫을 남기고, 가장 큰 결제의 블록에 받은 돈을 더한다")
+    @DisplayName("받은 돈을 결제 비율대로 빼서 내 몫을 남기고, 결제마다 뺀 만큼 그 결제의 블록에 돌려놓는다")
     void create() {
         Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
-        Transaction cafe = transaction(2L, user, 10_000L, TransactionDirection.OUT, null);
+        Transaction cafe = transaction(2L, user, 10_000L, TransactionDirection.OUT, pocket);
         Transaction friendA = transaction(3L, user, 15_000L, TransactionDirection.IN, null);
         Transaction friendB = transaction(4L, user, 5_000L, TransactionDirection.IN, null);
         given(List.of(food, cafe), List.of(friendA, friendB));
@@ -110,19 +111,23 @@ class DutchPayServiceTest {
         DutchPayResponse response = service.create(USER_ID, request(List.of(1L, 2L), List.of(3L, 4L)));
 
         assertThat(response.payments()).extracting(DutchPayResponse.Payment::myShare).containsExactly(15_000L, 5_000L);
+        assertThat(response.payments()).extracting(p -> p.returnedBlock().amount()).containsExactly(15_000L, 5_000L);
         assertThat(response.myShareTotal()).isEqualTo(20_000L);
-        assertThat(response.returnedBlock().amount()).isEqualTo(20_000L);
-        assertThat(living.getBalance()).isEqualTo(120_000L);
+        assertThat(response.returnedTotal()).isEqualTo(20_000L);
+        assertThat(living.getBalance()).isEqualTo(115_000L);
+        assertThat(pocket.getBalance()).isEqualTo(55_000L);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<DutchPayTransaction>> links = ArgumentCaptor.forClass(List.class);
         verify(dutchPayTransactionRepository).saveAll(links.capture());
         assertThat(links.getValue()).extracting(DutchPayTransaction::getMyShare)
                 .containsExactly(15_000L, 5_000L, null, null);
+        assertThat(links.getValue()).extracting(DutchPayTransaction::getReturnedAmount)
+                .containsExactly(15_000L, 5_000L, null, null);
     }
 
     @Test
-    @DisplayName("받은 돈이 결제보다 많으면 블록에는 결제 합까지만 더한다")
+    @DisplayName("받은 돈이 결제보다 많으면 결제 금액까지만 돌려놓는다")
     void receivedMoreThanPaid() {
         Transaction food = transaction(1L, user, 40_000L, TransactionDirection.OUT, living);
         Transaction friend = transaction(3L, user, 45_000L, TransactionDirection.IN, null);
@@ -133,13 +138,13 @@ class DutchPayServiceTest {
 
         assertThat(response.myShareTotal()).isZero();
         assertThat(response.receivedTotal()).isEqualTo(45_000L);
-        assertThat(response.returnedBlock().amount()).isEqualTo(40_000L);
+        assertThat(response.returnedTotal()).isEqualTo(40_000L);
         assertThat(living.getBalance()).isEqualTo(140_000L);
     }
 
     @Test
-    @DisplayName("가장 큰 결제가 블록에 반영되지 않았으면 받은 돈을 어느 블록에도 더하지 않는다")
-    void largestNotReflected() {
+    @DisplayName("블록에 반영되지 않은 결제는 돌려놓지 않고, 반영된 결제만 돌려놓는다")
+    void unreflectedPaymentSkipped() {
         Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, null);
         Transaction cafe = transaction(2L, user, 10_000L, TransactionDirection.OUT, living);
         Transaction friend = transaction(3L, user, 20_000L, TransactionDirection.IN, null);
@@ -148,8 +153,9 @@ class DutchPayServiceTest {
 
         DutchPayResponse response = service.create(USER_ID, request(List.of(1L, 2L), List.of(3L)));
 
-        assertThat(response.returnedBlock()).isNull();
-        assertThat(living.getBalance()).isEqualTo(100_000L);
+        assertThat(response.payments().get(0).returnedBlock()).isNull();
+        assertThat(response.payments().get(1).returnedBlock().amount()).isEqualTo(5_000L);
+        assertThat(living.getBalance()).isEqualTo(105_000L);
     }
 
     @Test
@@ -162,7 +168,7 @@ class DutchPayServiceTest {
         DutchPayResponse response = service.create(USER_ID, request(List.of(1L), List.of()));
 
         assertThat(response.myShareTotal()).isEqualTo(30_000L);
-        assertThat(response.returnedBlock()).isNull();
+        assertThat(response.returnedTotal()).isZero();
         assertThat(living.getBalance()).isEqualTo(100_000L);
     }
 

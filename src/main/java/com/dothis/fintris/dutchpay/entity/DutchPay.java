@@ -1,6 +1,5 @@
 package com.dothis.fintris.dutchpay.entity;
 
-import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.global.entity.BaseEntity;
 import com.dothis.fintris.user.entity.User;
 import jakarta.persistence.Column;
@@ -35,26 +34,11 @@ public class DutchPay extends BaseEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // 받은 돈을 돌려놓은 블록. 가장 큰 결제가 블록에 반영되지 않았으면 null
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "block_id")
-    private Block block;
-
-    // 그 블록에 더한 금액. 수정·해제할 때 이만큼 되돌린다
-    @Column(nullable = false)
-    private long returnedAmount;
-
     // 블록 잔액을 같이 바꾸므로 동시 수정을 막는다
     @Version
     private Long version;
 
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);
-    }
-
-    // 블록 잔액은 서비스가 바꾸고, 여기는 어디에 얼마를 돌려놓았는지만 남긴다
-    public void returnTo(Block block, long amount) {
-        this.block = block;
-        this.returnedAmount = amount;
     }
 }

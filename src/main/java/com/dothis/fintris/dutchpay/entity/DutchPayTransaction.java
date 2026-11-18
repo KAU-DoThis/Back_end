@@ -1,5 +1,6 @@
 package com.dothis.fintris.dutchpay.entity;
 
+import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.global.entity.BaseCreatedEntity;
 import com.dothis.fintris.transaction.entity.Transaction;
 import jakarta.persistence.Column;
@@ -47,4 +48,12 @@ public class DutchPayTransaction extends BaseCreatedEntity {
 
     // 결제 건의 내 몫. 받은 돈을 결제 금액 비율로 나눠 뺀 값이고, 받은 돈 건은 null
     private Long myShare;
+
+    // 결제 건에서 받은 돈(결제 금액 - 내 몫)을 돌려놓은 블록과 금액. 결제가 블록에 반영되지 않았거나 받은 돈 건이면 null
+    // 수정·해제할 때 이만큼 되돌린다
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "block_id")
+    private Block block;
+
+    private Long returnedAmount;
 }

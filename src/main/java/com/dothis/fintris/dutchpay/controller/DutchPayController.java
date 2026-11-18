@@ -25,7 +25,7 @@ public class DutchPayController {
 
     @Operation(summary = "더치페이 만들기",
             description = "고른 결제(출금)와 받은 돈(입금)을 묶는다. 받은 돈을 결제 금액 비율대로 빼서 결제마다 내 몫을 남기고, "
-                    + "받은 돈은 결제 합까지 가장 큰 결제의 블록에 더한다. 이미 다른 더치페이에 들어간 거래가 있으면 409")
+                    + "결제마다 (결제 금액 - 내 몫)을 그 결제가 반영된 블록에 돌려놓는다. 이미 다른 더치페이에 들어간 거래가 있으면 409")
     @PostMapping
     public ApiResponse<DutchPayResponse> create(@AuthenticationPrincipal Long userId,
                                                 @RequestBody @Valid DutchPayRequest request) {

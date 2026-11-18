@@ -27,7 +27,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 // 더치페이 (N-06). 거래는 그대로 두고 묶음에 내 몫만 남긴다.
-// 받은 돈은 결제 합까지 가장 큰 결제의 블록에 더한다. 실제로 통장에 들어온 돈이라 불변식이 유지된다.
+// 받은 돈은 결제마다 (결제 금액 - 내 몫)만큼 그 결제가 반영된 블록에 돌려놓는다. 합은 받은 돈(결제 합까지)이다.
+// 실제로 통장에 들어온 돈이라 불변식이 유지되고, 블록마다 내 몫만큼만 빠진 상태가 된다.
 // 주의: 입금을 대기 자금으로 넣는 기능이 붙으면 더치페이에 묶인 입금은 건너뛰어야 한다(두 번 잡힘)
 @Service
 @RequiredArgsConstructor
@@ -51,20 +52,31 @@ public class DutchPayService {
         User user = payments.getFirst().getUser();
         DutchPay dutchPay = dutchPayRepository.save(DutchPay.builder().user(user).build());
 
-        List<DutchPayTransaction> links = new ArrayList<>();
+        List<DutchPayTransaction> paymentLinks = new ArrayList<>();
         for (int i = 0; i < payments.size(); i++) {
-            links.add(DutchPayTransaction.builder()
-                    .dutchPay(dutchPay).transaction(payments.get(i)).myShare(shares.get(i)).build());
+            paymentLinks.add(paymentLink(dutchPay, payments.get(i), shares.get(i)));
         }
+        List<DutchPayTransaction> links = new ArrayList<>(paymentLinks);
         for (Transaction transaction : received) {
             links.add(DutchPayTransaction.builder().dutchPay(dutchPay).transaction(transaction).build());
         }
         dutchPayTransactionRepository.saveAll(links);
 
-        long paidTotal = payments.stream().mapToLong(Transaction::getAmount).sum();
-        returnToBlock(dutchPay, payments, Math.min(receivedTotal, paidTotal));
+        return toResponse(dutchPay, paymentLinks, received, receivedTotal);
+    }
 
-        return toResponse(dutchPay, payments, shares, received, paidTotal, receivedTotal);
+    // 받은 돈 중 이 결제 몫(결제 금액 - 내 몫)을 결제가 반영된 블록에 돌려놓는다. 블록에 반영되지 않은 결제는 뺀 적이 없어 건너뛴다
+    private DutchPayTransaction paymentLink(DutchPay dutchPay, Transaction payment, long myShare) {
+        long returned = payment.getAmount() - myShare;
+        Block block = payment.getBlock();
+        boolean returnable = returned > 0 && block != null && block.getDeletedAt() == null;
+        if (returnable) {
+            block.deposit(returned);
+        }
+        return DutchPayTransaction.builder()
+                .dutchPay(dutchPay).transaction(payment).myShare(myShare)
+                .block(returnable ? block : null).returnedAmount(returnable ? returned : null)
+                .build();
     }
 
     // 같은 거래를 두 번 고르지 않았는지, 내 거래인지, 방향이 맞는지, 취소되지 않았는지 본다
@@ -108,36 +120,21 @@ public class DutchPayService {
         }
     }
 
-    // 가장 큰 결제(같으면 앞에 고른 것)의 블록에 더한다. 그 결제가 블록에 반영되지 않았으면 더하지 않는다
-    private void returnToBlock(DutchPay dutchPay, List<Transaction> payments, long amount) {
-        Transaction largest = payments.getFirst();
-        for (Transaction payment : payments) {
-            if (payment.getAmount() > largest.getAmount()) {
-                largest = payment;
-            }
-        }
-        Block block = largest.getBlock();
-        if (amount <= 0 || block == null || block.getDeletedAt() != null) {
-            return;
-        }
-        block.deposit(amount);
-        dutchPay.returnTo(block, amount);
-    }
-
-    private DutchPayResponse toResponse(DutchPay dutchPay, List<Transaction> payments, List<Long> shares,
-                                        List<Transaction> received, long paidTotal, long receivedTotal) {
-        List<DutchPayResponse.Payment> paymentItems = new ArrayList<>();
-        for (int i = 0; i < payments.size(); i++) {
-            paymentItems.add(new DutchPayResponse.Payment(payments.get(i).getId(), payments.get(i).getAmount(), shares.get(i)));
-        }
+    private DutchPayResponse toResponse(DutchPay dutchPay, List<DutchPayTransaction> paymentLinks,
+                                        List<Transaction> received, long receivedTotal) {
+        List<DutchPayResponse.Payment> paymentItems = paymentLinks.stream()
+                .map(link -> new DutchPayResponse.Payment(link.getTransaction().getId(), link.getTransaction().getAmount(),
+                        link.getMyShare(), link.getBlock() == null ? null : new DutchPayResponse.ReturnedBlock(
+                        link.getBlock().getId(), link.getBlock().getName(), link.getReturnedAmount())))
+                .toList();
         List<DutchPayResponse.Received> receivedItems = received.stream()
                 .map(t -> new DutchPayResponse.Received(t.getId(), t.getAmount()))
                 .toList();
-        Block block = dutchPay.getBlock();
-        DutchPayResponse.ReturnedBlock returnedBlock = block == null ? null
-                : new DutchPayResponse.ReturnedBlock(block.getId(), block.getName(), dutchPay.getReturnedAmount());
-        long myShareTotal = shares.stream().mapToLong(Long::longValue).sum();
+        long paidTotal = paymentLinks.stream().mapToLong(link -> link.getTransaction().getAmount()).sum();
+        long myShareTotal = paymentLinks.stream().mapToLong(DutchPayTransaction::getMyShare).sum();
+        long returnedTotal = paymentLinks.stream()
+                .mapToLong(link -> link.getReturnedAmount() == null ? 0 : link.getReturnedAmount()).sum();
         return new DutchPayResponse(dutchPay.getId(), paymentItems, receivedItems,
-                paidTotal, receivedTotal, myShareTotal, returnedBlock, dutchPay.getVersion());
+                paidTotal, receivedTotal, myShareTotal, returnedTotal, dutchPay.getVersion());
     }
 }
