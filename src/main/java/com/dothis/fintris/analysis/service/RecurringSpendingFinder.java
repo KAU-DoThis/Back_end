@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 
 // 소비 분석 반복 지출 (API 명세 v4 8장 recurring). 순서: 반복 소비 → 중복 구독 → 고정지출
@@ -37,6 +38,15 @@ public class RecurringSpendingFinder {
 
     // history는 고정지출 판정에 쓰는 기간 앞 몇 달치를 포함한 쓴 돈 거래
     public List<Recurring> find(List<Transaction> history, LocalDate periodFrom) {
+        return find(history, periodFrom, Map.of());
+    }
+
+    // myShares: 더치페이 결제의 내 몫 (거래 ID → 금액). 반복 지출 금액은 내 몫으로 센다
+    public List<Recurring> find(List<Transaction> history, LocalDate periodFrom, Map<Long, Long> myShares) {
+        ToLongFunction<Transaction> amountOf = t -> {
+            Long share = t.getId() == null ? null : myShares.get(t.getId());
+            return share != null ? share : t.getAmount();
+        };
         List<RecurringPayment> fixed = recurringPaymentDetector.detect(history).stream()
                 .filter(payment -> !payment.lastPaidOn().isBefore(periodFrom))
                 .toList();
@@ -58,7 +68,7 @@ public class RecurringSpendingFinder {
                     .filter(t -> t.getMerchantOrPayee() != null)
                     .collect(Collectors.groupingBy(t -> payeeKey(t.getMerchantOrPayee())));
             List<Transaction> unnamed = transactions.stream().filter(t -> t.getMerchantOrPayee() == null).toList();
-            long amount = transactions.stream().mapToLong(Transaction::getAmount).sum();
+            long amount = transactions.stream().mapToLong(amountOf).sum();
             if (SUBSCRIPTION_CODE.equals(transactions.getFirst().getCategory().getCode())) {
                 if (byMerchant.size() >= 2) {
                     duplicatePayees.addAll(byMerchant.keySet());
@@ -76,8 +86,8 @@ public class RecurringSpendingFinder {
             int count = byMerchant.values().stream().mapToInt(List::size).sum() + unnamed.size();
             if (count >= REPEAT_MIN_COUNT && count * 100L >= (long) inPeriod.size() * REPEAT_MIN_SHARE_PERCENT) {
                 List<Transaction> top = byMerchant.values().stream().max(Comparator.comparingInt(List::size)).orElse(List.of());
-                long repeatAmount = byMerchant.values().stream().flatMap(List::stream).mapToLong(Transaction::getAmount).sum()
-                        + unnamed.stream().mapToLong(Transaction::getAmount).sum();
+                long repeatAmount = byMerchant.values().stream().flatMap(List::stream).mapToLong(amountOf).sum()
+                        + unnamed.stream().mapToLong(amountOf).sum();
                 repeats.add(new Recurring("REPEAT", name, repeatSummary(count, top), repeatAmount));
             }
         });

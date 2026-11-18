@@ -49,20 +49,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     Slice<Transaction> findByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId, Pageable pageable);
 
     // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
+    // 더치페이 결제는 내 몫만 쓴 돈으로 세고, 이 블록에 돌려놓은 받은 돈만큼 뺀 금액도 줄인다
     @Query("""
             select new com.dothis.fintris.transaction.repository.BlockSpent(
-              coalesce(sum(t.amount), 0), coalesce(sum(t.blockAmount), 0))
+              coalesce(sum(coalesce(d.myShare, t.amount)), 0),
+              coalesce(sum(t.blockAmount), 0)
+                - coalesce(sum(case when d.block.id = :blockId then d.returnedAmount else 0 end), 0))
             from Transaction t
+              left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
             where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
             """)
     BlockSpent sumBlockSpent(@Param("blockId") Long blockId,
                              @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
-    // 블록 상세 소진 속도: 이 블록에 반영된 거래 금액의 날짜별 합
+    // 블록 상세 소진 속도: 이 블록에 반영된 거래 금액의 날짜별 합. 더치페이 결제는 내 몫만 센다
     @Query("""
             select new com.dothis.fintris.transaction.repository.DayTotal(
-              cast(t.occurredAt as LocalDate), coalesce(sum(t.amount), 0))
+              cast(t.occurredAt as LocalDate), coalesce(sum(coalesce(d.myShare, t.amount)), 0))
             from Transaction t
+              left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
             where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
             group by cast(t.occurredAt as LocalDate)
             """)

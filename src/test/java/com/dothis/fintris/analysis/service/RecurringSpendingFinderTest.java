@@ -10,11 +10,13 @@ import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.service.RecurringPaymentDetector;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -36,6 +38,20 @@ class RecurringSpendingFinderTest {
         return Transaction.builder().occurredAt(LocalDateTime.of(2026, month, day, 9, 0)).amount(amount)
                 .direction(TransactionDirection.OUT).merchantOrPayee(merchant).category(category)
                 .source(TransactionSource.CODEF).status(TransactionStatus.CONFIRMED).build();
+    }
+
+    @Test
+    @DisplayName("더치페이 결제는 반복 소비 금액에 내 몫만 넣는다")
+    void repeatUsesMyShare() {
+        List<Transaction> history = new ArrayList<>();
+        for (int day = 1; day <= 4; day++) {
+            Transaction t = spent(CAFE, "스타벅스", 10, day, 5_000);
+            ReflectionTestUtils.setField(t, "id", (long) day);
+            history.add(t);
+        }
+
+        assertThat(finder.find(history, PERIOD_FROM, Map.of(1L, 2_000L)))
+                .extracting(Recurring::amount).containsExactly(17_000L);
     }
 
     @Test
