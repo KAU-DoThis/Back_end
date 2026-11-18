@@ -48,6 +48,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @EntityGraph(attributePaths = "linkedAccount")
     Slice<Transaction> findByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId, Pageable pageable);
 
+    // 블록 상태 판정: 고정지출 블록에 이번 달 납부(반영된 출금)가 있는지
+    boolean existsByBlock_IdAndOccurredAtGreaterThanEqual(Long blockId, LocalDateTime from);
+
     // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
     @Query("""
             select new com.dothis.fintris.transaction.repository.BlockSpent(

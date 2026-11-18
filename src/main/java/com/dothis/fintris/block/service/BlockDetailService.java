@@ -8,6 +8,7 @@ import com.dothis.fintris.block.dto.BlockHistoryResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockRule;
+import com.dothis.fintris.block.entity.BlockStatus;
 import com.dothis.fintris.block.entity.BlockTransfer;
 import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.repository.BlockCategoryRepository;
@@ -55,16 +56,20 @@ public class BlockDetailService {
     private final BlockTransferRepository blockTransferRepository;
     private final BlockCategoryRepository blockCategoryRepository;
     private final TransactionRepository transactionRepository;
+    private final BlockStatusService blockStatusService;
 
     public BlockDetailResponse getDetail(Long userId, Long blockId) {
         Block block = findOwnedBlock(userId, blockId);
-        BlockResponse response = BlockResponse.of(block, blockCategoryRepository.findAllByBlock_Id(blockId));
+        BlockStatusJudge.Judgement status = blockStatusService.judge(block);
+        BlockResponse response = BlockResponse.of(block, blockCategoryRepository.findAllByBlock_Id(blockId), status);
         LocalDate today = LocalDate.now(KST);
-        return switch (block.getType()) {
+        BlockDetailResponse detail = switch (block.getType()) {
             case GOAL -> goal(block, response, today);
             case FIXED -> fixed(block, response, today);
-            case SPENDING -> spending(block, response, today);
+            case SPENDING -> spending(block, response, today, status);
         };
+        // "왜 주의인가요?" 문장. 안전이면 null (템플릿, AI 문장은 AI 쪽 API가 생기면 교체)
+        return new BlockDetailResponse(detail.block(), status.reason(), detail.actions(), detail.ruleText(), detail.detail());
     }
 
     // 02-1: 달성률, 이번 달 확보, 언제 다 모일까요?, 들어온 돈
@@ -138,7 +143,8 @@ public class BlockDetailService {
     }
 
     // 02: 기간, 남은 비율·일수, 오늘 가능·씀·남음 (홈 dailyGuide와 같은 계산)
-    private BlockDetailResponse spending(Block block, BlockResponse response, LocalDate today) {
+    private BlockDetailResponse spending(Block block, BlockResponse response, LocalDate today,
+                                         BlockStatusJudge.Judgement status) {
         Long monthlyAmount = block.getRule() != null ? block.getRule().monthlyAmount() : null;
         long days = block.getDueDate() != null ? DailyGuideCalculator.remainingDays(today, block.getDueDate()) : 0;
         // "오늘 가능"은 아침 기준이라 하루 동안 그대로다: 오늘 이 블록에서 뺀 돈을 되돌린 잔액으로 계산한다
@@ -155,7 +161,10 @@ public class BlockDetailService {
                 burn(block, monthlyAmount, today),
                 transactionRepository.findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(block.getId()).stream()
                         .limit(RECENT_TRANSACTIONS).map(TransactionResponse::from).toList());
-        return new BlockDetailResponse(response, null, List.of(), ruleText(block), detail);
+        // 주의·위험이면 "절약 제안 보기"와 "다른 블록에서 채우기" 버튼 (02)
+        List<String> actions = status.status() == BlockStatus.SAFE
+                ? List.of() : List.of("OPEN_SAVING_SUGGESTIONS", "FILL_FROM_OTHER");
+        return new BlockDetailResponse(response, null, actions, ruleText(block), detail);
     }
 
     private String paceLabel(Long delay) {

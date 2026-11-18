@@ -27,7 +27,7 @@ class BlockStatusJudgeTest {
             // 소진율 1,290,000 ÷ 3,000,000 = 43% (경과율 + 9.7%p)
             Judgement result = BlockStatusJudge.spending(1_710_000, 3_000_000L, START, END, DAY_10, 1_290_000);
 
-            assertThat(result).isEqualTo(new Judgement(BlockStatus.SAFE, null));
+            assertThat(result).extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.SAFE, null);
         }
 
         @Test
@@ -35,17 +35,17 @@ class BlockStatusJudgeTest {
         void cautionAndDanger() {
             // 소진율 50% → +16.7%p
             assertThat(BlockStatusJudge.spending(1_500_000, 3_000_000L, START, END, DAY_10, 1_500_000))
-                    .isEqualTo(new Judgement(BlockStatus.CAUTION, "소진 빠름"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.CAUTION, "소진 빠름");
             // 소진율 60% → +26.7%p
             assertThat(BlockStatusJudge.spending(1_200_000, 3_000_000L, START, END, DAY_10, 1_800_000))
-                    .isEqualTo(new Judgement(BlockStatus.DANGER, "소진 빠름"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.DANGER, "소진 빠름");
         }
 
         @Test
         @DisplayName("잔액이 0이면 쓴 속도와 상관없이 위험")
         void emptyBalance() {
             assertThat(BlockStatusJudge.spending(0, 3_000_000L, START, END, DAY_10, 0))
-                    .isEqualTo(new Judgement(BlockStatus.DANGER, "잔액 없음"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.DANGER, "잔액 없음");
         }
 
         @Test
@@ -83,9 +83,9 @@ class BlockStatusJudgeTest {
         @DisplayName("다 모았으면 안전, 기한이 지났는데 못 모았으면 위험")
         void achievedAndExpired() {
             assertThat(BlockStatusJudge.goal(TARGET, TARGET, MONTHLY, FAR_DUE, DAY_10, 0))
-                    .isEqualTo(new Judgement(BlockStatus.SAFE, "목표 달성"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.SAFE, "목표 달성");
             assertThat(BlockStatusJudge.goal(500_000, TARGET, MONTHLY, START, DAY_10, 0))
-                    .isEqualTo(new Judgement(BlockStatus.DANGER, "기한 지남"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.DANGER, "기한 지남");
         }
 
         @Test
@@ -94,7 +94,7 @@ class BlockStatusJudgeTest {
             // 월 10만 원이면 300일 뒤 → 2027-03-31 기한보다 23주 늦음
             Judgement result = BlockStatusJudge.goal(0, TARGET, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 100_000);
 
-            assertThat(result).isEqualTo(new Judgement(BlockStatus.CAUTION, "23주 늦어짐"));
+            assertThat(result).extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.CAUTION, "23주 늦어짐");
         }
 
         @Test
@@ -115,9 +115,9 @@ class BlockStatusJudgeTest {
         @DisplayName("월말 예상 확보율 70~100%면 주의, 70% 미만이면 위험")
         void projected() {
             // 15일(50%)에 8만 원 → 월말 16만 원 = 80%
-            assertThat(onDay(15, 80_000)).isEqualTo(new Judgement(BlockStatus.CAUTION, "이번 달 확보 부족"));
+            assertThat(onDay(15, 80_000)).extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.CAUTION, "이번 달 확보 부족");
             // 15일(50%)에 5만 원 → 월말 10만 원 = 50%
-            assertThat(onDay(15, 50_000)).isEqualTo(new Judgement(BlockStatus.DANGER, "이번 달 확보 부족"));
+            assertThat(onDay(15, 50_000)).extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.DANGER, "이번 달 확보 부족");
         }
 
         @Test
@@ -139,14 +139,14 @@ class BlockStatusJudgeTest {
         @DisplayName("납부액을 다 모았으면 안전")
         void ready() {
             assertThat(BlockStatusJudge.fixed(600_000, 600_000L, PAY_DAY, DAY_10, 0, false))
-                    .isEqualTo(new Judgement(BlockStatus.SAFE, "납부 준비 끝"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.SAFE, "납부 준비 끝");
         }
 
         @Test
         @DisplayName("이번 납부를 이미 냈으면 잔액이 비어도 안전")
         void alreadyPaid() {
             assertThat(BlockStatusJudge.fixed(0, 600_000L, PAY_DAY, DAY_10, 0, true))
-                    .isEqualTo(new Judgement(BlockStatus.SAFE, "이번 달 납부 완료"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.SAFE, "이번 달 납부 완료");
         }
 
         @Test
@@ -154,7 +154,7 @@ class BlockStatusJudgeTest {
         void coverable() {
             LocalDate twoDaysBefore = LocalDate.of(2026, 11, 23);
             assertThat(BlockStatusJudge.fixed(500_000, 600_000L, PAY_DAY, twoDaysBefore, 100_000, false))
-                    .isEqualTo(new Judgement(BlockStatus.CAUTION, "납부액 부족"));
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.CAUTION, "납부액 부족");
         }
 
         @Test
@@ -172,6 +172,44 @@ class BlockStatusJudgeTest {
             // 2월은 28일까지 → 31일 납부는 2/28
             assertThat(BlockStatusJudge.fixed(0, 600_000L, 31, LocalDate.of(2027, 2, 25), 0, false).status())
                     .isEqualTo(BlockStatus.DANGER);
+        }
+    }
+
+    @Nested
+    @DisplayName("상태 이유 문장")
+    class Reason {
+
+        @Test
+        @DisplayName("안전이면 이유 문장이 없다")
+        void safeHasNoReason() {
+            assertThat(BlockStatusJudge.spending(1_710_000, 3_000_000L, START, END, DAY_10, 1_290_000).reason()).isNull();
+        }
+
+        @Test
+        @DisplayName("사용형은 지난 기간과 쓴 비율을 숫자로 알려준다")
+        void spending() {
+            // 10일째(33%)에 50%를 씀 → 17%p 빠름
+            assertThat(BlockStatusJudge.spending(1_500_000, 3_000_000L, START, END, DAY_10, 1_500_000).reason())
+                    .isEqualTo("기간의 33%가 지났는데 50%를 썼어요. 계획보다 17%p 빨라요.");
+        }
+
+        @Test
+        @DisplayName("고정지출형은 납부일과 모자란 금액, 채울 방법을 알려준다")
+        void fixed() {
+            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, 25, DAY_10, 100_000, false).reason())
+                    .isEqualTo("11월 25일 납부까지 100,000원이 모자라요. 나눌 돈으로 채울 수 있어요.");
+            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, 25, DAY_10, 0, false).reason())
+                    .endsWith("다른 블록에서 옮겨 와야 해요.");
+        }
+
+        @Test
+        @DisplayName("목표형은 늦어지는 기간이나 이번 달 예상 확보율을 알려준다")
+        void goal() {
+            assertThat(BlockStatusJudge.goal(0, 1_000_000, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 100_000).reason())
+                    .isEqualTo("매달 100,000원씩 모으면 목표일보다 23주 늦어져요.");
+            assertThat(BlockStatusJudge.goal(0, 1_000_000, 200_000L, LocalDate.of(2027, 12, 31),
+                    LocalDate.of(2026, 11, 15), 80_000).reason())
+                    .isEqualTo("이번 달 80,000원 모았어요. 이대로면 월 목표 200,000원의 80%만 모여요.");
         }
     }
 }
