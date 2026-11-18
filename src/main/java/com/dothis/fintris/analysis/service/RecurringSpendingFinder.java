@@ -98,8 +98,14 @@ public class RecurringSpendingFinder {
         // 중복 구독에 이미 나온 구독은 고정지출로 다시 보여주지 않는다
         fixed.stream().filter(payment -> !duplicatePayees.contains(payeeKey(payment.payee())))
                 .forEach(payment -> result.add(new Recurring("FIXED", payment.payee(),
-                        "매월 " + payment.payDay() + "일", payment.payAmount())));
+                        "매월 " + payment.payDay() + "일", fixedAmount(payment, myShares))));
         return result;
+    }
+
+    // 고정지출 탐지는 결제 금액 그대로 하고, 보여주는 금액은 가장 최근 결제가 더치페이면 내 몫으로 한다
+    private long fixedAmount(RecurringPayment payment, Map<Long, Long> myShares) {
+        Long share = payment.lastTransactionId() == null ? null : myShares.get(payment.lastTransactionId());
+        return share != null ? share : payment.payAmount();
     }
 
     // "15회 · 스타벅스 9회, 그 외 6회". 가맹점 이름이 있는 거래가 없으면 "15회"

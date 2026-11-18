@@ -78,7 +78,7 @@ public class RecurringPaymentDetector {
         long max = monthly.stream().mapToLong(Transaction::getAmount).max().orElseThrow();
         return new RecurringPayment(latest.getMerchantOrPayee(), payDay, latest.getAmount(), min, max,
                 monthly.size(), latest.getOccurredAt().toLocalDate(),
-                latest.getLinkedAccount() == null ? null : latest.getLinkedAccount().getId());
+                latest.getLinkedAccount() == null ? null : latest.getLinkedAccount().getId(), latest.getId());
     }
 
     private boolean withinAmount(long amount, long median) {
@@ -96,8 +96,8 @@ public class RecurringPaymentDetector {
         return sorted.get((sorted.size() - 1) / 2);
     }
 
-    // payAmount는 가장 최근에 낸 금액. 금액이 달마다 같으면 minAmount = maxAmount
+    // payAmount는 가장 최근에 낸 금액(lastTransactionId 거래). 금액이 달마다 같으면 minAmount = maxAmount
     public record RecurringPayment(String payee, int payDay, long payAmount, long minAmount, long maxAmount,
-                                   int months, LocalDate lastPaidOn, Long linkedAccountId) {
+                                   int months, LocalDate lastPaidOn, Long linkedAccountId, Long lastTransactionId) {
     }
 }
