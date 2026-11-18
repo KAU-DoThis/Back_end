@@ -36,7 +36,7 @@ public class RefreshToken extends BaseEntity {
     private User user;
 
     @Column(nullable = false, length = 512, unique = true)
-    private String token;
+    private String token; // 토큰 원문이 아니라 SHA-256 해시
 
     @Column(nullable = false)
     private LocalDateTime expiresAt;

@@ -28,6 +28,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?}
       JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
       JWT_SECRET: ${JWT_SECRET:?}
+      # 카카오 앱 ID. 없으면 카카오 로그인을 받지 않는다
+      KAKAO_APP_ID: ${KAKAO_APP_ID:-}
       CODEF_BASE_URL: ${CODEF_BASE_URL:-https://development.codef.io}
       CODEF_CLIENT_ID: ${CODEF_CLIENT_ID:-}
       CODEF_CLIENT_SECRET: ${CODEF_CLIENT_SECRET:-}
