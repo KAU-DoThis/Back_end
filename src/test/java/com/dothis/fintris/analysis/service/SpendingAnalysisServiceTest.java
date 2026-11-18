@@ -6,6 +6,7 @@ import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CategoryItem;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CompareTo;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.TimeOfDay;
 import com.dothis.fintris.transaction.repository.CategorySpent;
+import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class SpendingAnalysisServiceTest {
 
     @Mock TransactionRepository transactionRepository;
     @Mock RecurringSpendingFinder recurringSpendingFinder;
+    @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
     @InjectMocks SpendingAnalysisService spendingAnalysisService;
 
     private void givenSpent(YearMonth month, List<CategorySpent> spents) {

@@ -4,6 +4,7 @@ import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.category.entity.Category;
+import com.dothis.fintris.dutchpay.entity.DutchPayTransaction;
 import com.dothis.fintris.transaction.entity.ClassifiedBy;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionDirection;
@@ -33,13 +34,19 @@ public record TransactionResponse(
         @Schema(description = "블록 반영 전이면 null") BlockItem block,
         boolean excluded,
         boolean isCanceled,
-        @Schema(description = "빠른 입력이면 \"빠른 입력\"", example = "빠른 입력") String inputMethod
+        @Schema(description = "빠른 입력이면 \"빠른 입력\"", example = "빠른 입력") String inputMethod,
+        @Schema(description = "더치페이에 묶인 거래면 채운다. 이미 묶인 거래는 다른 더치페이에 고를 수 없다") DutchPayItem dutchPay
 ) {
 
     // 자동 분류 신뢰도가 이보다 낮으면 불확실로 본다. 기준은 아직 팀 결정 전
     private static final BigDecimal UNCERTAIN_CONFIDENCE = new BigDecimal("0.7");
 
     public static TransactionResponse from(Transaction transaction) {
+        return from(transaction, null);
+    }
+
+    // dutchPayLink: 이 거래가 묶인 더치페이. 없으면 null
+    public static TransactionResponse from(Transaction transaction, DutchPayTransaction dutchPayLink) {
         return new TransactionResponse(
                 transaction.getId(),
                 AccountItem.from(transaction.getLinkedAccount()),
@@ -57,7 +64,8 @@ public record TransactionResponse(
                 BlockItem.from(transaction.getBlock()),
                 transaction.isExcluded(),
                 transaction.isCanceled(),
-                transaction.getSource() == TransactionSource.MANUAL ? "빠른 입력" : null
+                transaction.getSource() == TransactionSource.MANUAL ? "빠른 입력" : null,
+                DutchPayItem.from(dutchPayLink)
         );
     }
 
@@ -91,6 +99,15 @@ public record TransactionResponse(
     ) {
         static CategoryItem from(Category category) {
             return category == null ? null : new CategoryItem(category.getId(), category.getCode(), category.getName());
+        }
+    }
+
+    public record DutchPayItem(
+            @Schema(example = "7") Long dutchPayId,
+            @Schema(description = "결제 건의 내 몫(쓴 돈으로 잡히는 금액). 받은 돈 건은 null", example = "15000") Long myShare
+    ) {
+        static DutchPayItem from(DutchPayTransaction link) {
+            return link == null ? null : new DutchPayItem(link.getDutchPay().getId(), link.getMyShare());
         }
     }
 
