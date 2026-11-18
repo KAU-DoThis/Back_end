@@ -12,6 +12,7 @@ import com.dothis.fintris.codef.client.CodefCardApprovalClient.CardApproval;
 import com.dothis.fintris.codef.client.CodefCardApprovalClient.CardApprovalsResult;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient.BankTransaction;
 import com.dothis.fintris.codef.client.CodefBankTransactionClient.BankTransactionsResult;
+import com.dothis.fintris.dutchpay.service.DutchPayService;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionDirection;
 import com.dothis.fintris.transaction.entity.TransactionSource;
@@ -62,6 +63,7 @@ public class TransactionSyncService {
     private final CheckCardDuplicateMatcher checkCardDuplicateMatcher;
     private final BlockReflector blockReflector;
     private final BlockReflectionService blockReflectionService;
+    private final DutchPayService dutchPayService;
 
     // 은행 계좌는 하나씩, 카드는 카드사 단위로 동기화한다. 하나가 실패해도 나머지는 계속하고 실패한 계좌·카드 수를 센다
     public SyncSummary syncUser(Long userId) {
@@ -174,6 +176,7 @@ public class TransactionSyncService {
                 : transactionRepository.findAllByUser_IdAndExternalKeyIn(first.getUser().getId(), byKey.keySet()).stream()
                         .collect(Collectors.toMap(Transaction::getExternalKey, Function.identity()));
         List<Transaction> toSave = new ArrayList<>();
+        List<Transaction> changed = new ArrayList<>();
         int created = 0;
         for (Map.Entry<String, CardApproval> entry : byKey.entrySet()) {
             Transaction saved = existing.get(entry.getKey());
@@ -182,9 +185,11 @@ public class TransactionSyncService {
                 created++;
             } else if (applyCancel(saved, entry.getValue())) {
                 toSave.add(saved);
+                changed.add(saved);
             }
         }
         transactionRepository.saveAll(toSave);
+        recalculateDutchPays(changed);
 
         // 카드는 잔액이 없어 동기화 시각만 갱신한다
         cards.forEach(card -> card.markSynced(now, null));
@@ -316,6 +321,18 @@ public class TransactionSyncService {
                 : String.join("|", "CARD", institutionCode, String.valueOf(approval.cardNumber()), occurredAt,
                         String.valueOf(approval.amount()), String.valueOf(approval.merchantName()));
         return sha256(source);
+    }
+
+    // 취소·부분취소로 금액이 바뀐 결제가 더치페이에 묶여 있으면 내 몫을 다시 계산한다.
+    // 블록 반영이 다시 맞춰지지 않는 부분취소(뺀 금액보다 남은 금액이 큼)도 있어 여기서 따로 부른다
+    private void recalculateDutchPays(List<Transaction> changed) {
+        for (Transaction transaction : changed) {
+            try {
+                dutchPayService.recalculateFor(transaction.getId());
+            } catch (OptimisticLockingFailureException e) {
+                log.warn("더치페이 다시 계산 충돌로 건너뜀: transactionId={}", transaction.getId());
+            }
+        }
     }
 
     // 이미 저장한 승인이 취소·부분취소로 바뀌었으면 고친다. 바뀐 게 있으면 true

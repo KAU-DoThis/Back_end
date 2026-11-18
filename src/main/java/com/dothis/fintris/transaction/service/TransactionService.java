@@ -7,6 +7,7 @@ import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.category.repository.CategoryRepository;
 import com.dothis.fintris.dutchpay.entity.DutchPayTransaction;
 import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
+import com.dothis.fintris.dutchpay.service.DutchPayRecalculator;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
@@ -55,6 +56,7 @@ public class TransactionService {
     private final CategoryRepository categoryRepository;
     private final BlockReflector blockReflector;
     private final DutchPayTransactionRepository dutchPayTransactionRepository;
+    private final DutchPayRecalculator dutchPayRecalculator;
 
     public TransactionResponse getTransaction(Long userId, Long transactionId) {
         return withDutchPay(ownedTransaction(userId, transactionId));
@@ -95,6 +97,8 @@ public class TransactionService {
         // 취소로 표시하면 반영 대상이 아니게 되어 reconcile이 블록에 뺀 금액을 돌려준다
         transaction.cancel();
         blockReflector.reconcile(transaction, blockReflector.blocksConfirmedAt(userId).orElse(null));
+        // 더치페이에 묶여 있으면 묶음에서 빼고 남은 거래로 다시 계산한다
+        dutchPayRecalculator.unlink(transaction);
         transactionRepository.delete(transaction);
         return new TransactionReviewResponse(transactionId, action, null);
     }

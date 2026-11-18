@@ -23,6 +23,7 @@ import com.dothis.fintris.transaction.repository.DayTotal;
 import com.dothis.fintris.dutchpay.entity.DutchPay;
 import com.dothis.fintris.dutchpay.entity.DutchPayTransaction;
 import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
+import com.dothis.fintris.dutchpay.service.DutchPayRecalculator;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.transaction.repository.TransactionTotals;
 import com.dothis.fintris.user.entity.AuthProvider;
@@ -61,6 +62,7 @@ class TransactionServiceTest {
 
     @Mock TransactionRepository transactionRepository;
     @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
+    @Mock DutchPayRecalculator dutchPayRecalculator;
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock CategoryRepository categoryRepository;
     @Mock BlockReflector blockReflector;

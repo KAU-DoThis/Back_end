@@ -23,6 +23,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import com.dothis.fintris.dutchpay.service.DutchPayService;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -56,6 +57,7 @@ class TransactionSyncServiceTest {
     private static final LocalDateTime T2 = LocalDateTime.of(2026, 10, 2, 18, 0, 0);
 
     @Mock TransactionRepository transactionRepository;
+    @Mock DutchPayService dutchPayService;
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock CodefBankTransactionClient codefBankTransactionClient;
     @Mock CodefCardApprovalClient codefCardApprovalClient;
