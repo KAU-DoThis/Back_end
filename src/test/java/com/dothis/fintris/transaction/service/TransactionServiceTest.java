@@ -20,6 +20,9 @@ import com.dothis.fintris.transaction.entity.TransactionDirection;
 import com.dothis.fintris.transaction.entity.TransactionSource;
 import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.repository.DayTotal;
+import com.dothis.fintris.dutchpay.entity.DutchPay;
+import com.dothis.fintris.dutchpay.entity.DutchPayTransaction;
+import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.transaction.repository.TransactionTotals;
 import com.dothis.fintris.user.entity.AuthProvider;
@@ -57,6 +60,7 @@ class TransactionServiceTest {
     private static final Long TRANSACTION_ID = 101L;
 
     @Mock TransactionRepository transactionRepository;
+    @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock CategoryRepository categoryRepository;
     @Mock BlockReflector blockReflector;
@@ -84,6 +88,20 @@ class TransactionServiceTest {
     private void given(Transaction transaction) {
         ReflectionTestUtils.setField(transaction, "id", TRANSACTION_ID);
         when(transactionRepository.findById(TRANSACTION_ID)).thenReturn(Optional.of(transaction));
+    }
+
+    @Test
+    @DisplayName("더치페이에 묶인 거래는 더치페이 ID와 내 몫을 같이 돌려준다")
+    void dutchPayLinked() {
+        Transaction transaction = transaction(user(USER_ID)).build();
+        given(transaction);
+        DutchPay dutchPay = DutchPay.builder().user(user(USER_ID)).build();
+        ReflectionTestUtils.setField(dutchPay, "id", 7L);
+        when(dutchPayTransactionRepository.findByTransaction_Id(TRANSACTION_ID)).thenReturn(Optional.of(
+                DutchPayTransaction.builder().dutchPay(dutchPay).transaction(transaction).myShare(15_000L).build()));
+
+        assertThat(service.getTransaction(USER_ID, TRANSACTION_ID).dutchPay())
+                .isEqualTo(new TransactionResponse.DutchPayItem(7L, 15_000L));
     }
 
     @Test
