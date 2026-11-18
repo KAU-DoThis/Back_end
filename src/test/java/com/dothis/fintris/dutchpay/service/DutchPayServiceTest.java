@@ -19,19 +19,20 @@ import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.User;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,8 +49,14 @@ class DutchPayServiceTest {
     @Mock DutchPayRepository dutchPayRepository;
     @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
     @Mock TransactionRepository transactionRepository;
-    @Spy DutchPayShareCalculator shareCalculator;
-    @InjectMocks DutchPayService service;
+    private DutchPayService service;
+
+    @BeforeEach
+    void setUp() {
+        DutchPayRecalculator recalculator = new DutchPayRecalculator(
+                dutchPayRepository, dutchPayTransactionRepository, new DutchPayShareCalculator());
+        service = new DutchPayService(dutchPayRepository, dutchPayTransactionRepository, transactionRepository, recalculator);
+    }
 
     private final User user = user(USER_ID);
     private final Block living = block(10L, "생활비", 100_000L);
@@ -232,5 +239,95 @@ class DutchPayServiceTest {
 
         assertThatThrownBy(() -> service.create(USER_ID, request(List.of(1L), List.of())))
                 .extracting(DutchPayServiceTest::codeOf).isEqualTo(TransactionErrorCode.TRANSACTION_FORBIDDEN);
+    }
+
+    // 이미 만들어진 더치페이: 결제 food(30,000, 생활비)와 받은 돈 friendA(15,000)로 생활비에 15,000원을 돌려놓은 상태
+    private DutchPay existing(Transaction food, Transaction friendA) {
+        DutchPay dutchPay = DutchPay.builder().user(user).build();
+        ReflectionTestUtils.setField(dutchPay, "id", 7L);
+        DutchPayTransaction payment = DutchPayTransaction.builder().dutchPay(dutchPay).transaction(food)
+                .myShare(15_000L).block(living).returnedAmount(15_000L).build();
+        DutchPayTransaction received = DutchPayTransaction.builder().dutchPay(dutchPay).transaction(friendA).build();
+        when(dutchPayRepository.findForUpdate(7L)).thenReturn(Optional.of(dutchPay));
+        when(dutchPayTransactionRepository.findAllByDutchPay_Id(7L)).thenReturn(new ArrayList<>(List.of(payment, received)));
+        return dutchPay;
+    }
+
+    @Test
+    @DisplayName("수정: 나중에 받은 돈을 붙이면 내 몫을 다시 계산하고 늘어난 만큼만 블록에 더 돌려놓는다")
+    void updateAddsReceived() {
+        Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
+        Transaction friendA = transaction(3L, user, 15_000L, TransactionDirection.IN, null);
+        Transaction friendB = transaction(4L, user, 10_000L, TransactionDirection.IN, null);
+        living.deposit(15_000L); // 만들 때 돌려놓은 돈
+        DutchPay dutchPay = existing(food, friendA);
+        given(List.of(food), List.of(friendA, friendB));
+        when(dutchPayTransactionRepository.findAllByTransaction_IdIn(anyList())).thenReturn(List.of(
+                DutchPayTransaction.builder().dutchPay(dutchPay).transaction(food).build(),
+                DutchPayTransaction.builder().dutchPay(dutchPay).transaction(friendA).build()));
+
+        DutchPayResponse response = service.update(USER_ID, 7L, request(List.of(1L), List.of(3L, 4L)));
+
+        assertThat(response.myShareTotal()).isEqualTo(5_000L);
+        assertThat(response.returnedTotal()).isEqualTo(25_000L);
+        assertThat(living.getBalance()).isEqualTo(125_000L);
+    }
+
+    @Test
+    @DisplayName("수정: 받은 돈을 빼면 그만큼 블록에서 다시 뺀다")
+    void updateRemovesReceived() {
+        Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
+        Transaction friendA = transaction(3L, user, 15_000L, TransactionDirection.IN, null);
+        living.deposit(15_000L);
+        DutchPay dutchPay = existing(food, friendA);
+        given(List.of(food), List.of());
+        when(dutchPayTransactionRepository.findAllByTransaction_IdIn(anyList())).thenReturn(List.of(
+                DutchPayTransaction.builder().dutchPay(dutchPay).transaction(food).build()));
+
+        DutchPayResponse response = service.update(USER_ID, 7L, request(List.of(1L), List.of()));
+
+        assertThat(response.myShareTotal()).isEqualTo(30_000L);
+        assertThat(response.received()).isEmpty();
+        assertThat(living.getBalance()).isEqualTo(100_000L);
+    }
+
+    @Test
+    @DisplayName("수정: 다른 더치페이에 들어간 거래를 고르면 막는다")
+    void updateLinkedElsewhere() {
+        Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
+        Transaction friendA = transaction(3L, user, 15_000L, TransactionDirection.IN, null);
+        existing(food, friendA);
+        given(List.of(food), List.of(friendA));
+        DutchPay other = DutchPay.builder().user(user).build();
+        ReflectionTestUtils.setField(other, "id", 8L);
+        when(dutchPayTransactionRepository.findAllByTransaction_IdIn(anyList())).thenReturn(List.of(
+                DutchPayTransaction.builder().dutchPay(other).transaction(friendA).build()));
+
+        assertThatThrownBy(() -> service.update(USER_ID, 7L, request(List.of(1L), List.of(3L))))
+                .extracting(DutchPayServiceTest::codeOf).isEqualTo(DutchPayErrorCode.DUTCH_PAY_ALREADY_LINKED);
+    }
+
+    @Test
+    @DisplayName("해제: 블록에 돌려놓은 돈을 다시 빼고 묶음을 지운다")
+    void delete() {
+        Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
+        Transaction friendA = transaction(3L, user, 15_000L, TransactionDirection.IN, null);
+        living.deposit(15_000L);
+        DutchPay dutchPay = existing(food, friendA);
+
+        service.delete(USER_ID, 7L);
+
+        assertThat(living.getBalance()).isEqualTo(100_000L);
+        verify(dutchPayRepository).delete(dutchPay);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 더치페이는 해제할 수 없다")
+    void deleteForbidden() {
+        DutchPay others = DutchPay.builder().user(user(2L)).build();
+        when(dutchPayRepository.findForUpdate(7L)).thenReturn(Optional.of(others));
+
+        assertThatThrownBy(() -> service.delete(USER_ID, 7L))
+                .extracting(DutchPayServiceTest::codeOf).isEqualTo(DutchPayErrorCode.DUTCH_PAY_FORBIDDEN);
     }
 }

@@ -1,6 +1,5 @@
 package com.dothis.fintris.dutchpay.service;
 
-import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.dutchpay.code.DutchPayErrorCode;
 import com.dothis.fintris.dutchpay.dto.DutchPayRequest;
 import com.dothis.fintris.dutchpay.dto.DutchPayResponse;
@@ -13,7 +12,6 @@ import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionDirection;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
-import com.dothis.fintris.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -29,6 +28,7 @@ import java.util.stream.Collectors;
 // 더치페이 (N-06). 거래는 그대로 두고 묶음에 내 몫만 남긴다.
 // 받은 돈은 결제마다 (결제 금액 - 내 몫)만큼 그 결제가 반영된 블록에 돌려놓는다. 합은 받은 돈(결제 합까지)이다.
 // 실제로 통장에 들어온 돈이라 불변식이 유지되고, 블록마다 내 몫만큼만 빠진 상태가 된다.
+// 계산과 블록 잔액 변경은 DutchPayRecalculator가 한다
 // 주의: 입금을 대기 자금으로 넣는 기능이 붙으면 더치페이에 묶인 입금은 건너뛰어야 한다(두 번 잡힘)
 @Service
 @RequiredArgsConstructor
@@ -38,45 +38,96 @@ public class DutchPayService {
     private final DutchPayRepository dutchPayRepository;
     private final DutchPayTransactionRepository dutchPayTransactionRepository;
     private final TransactionRepository transactionRepository;
-    private final DutchPayShareCalculator shareCalculator;
+    private final DutchPayRecalculator recalculator;
 
     @Transactional
     public DutchPayResponse create(Long userId, DutchPayRequest request) {
-        List<Transaction> payments = loadOwned(userId, request.paymentTransactionIds(), request.receivedTransactionIds(), true);
-        List<Transaction> received = loadOwned(userId, request.receivedTransactionIds(), List.of(), false);
-        checkNotLinked(payments, received);
+        Selection selection = select(userId, request, null);
+        DutchPay dutchPay = dutchPayRepository.save(DutchPay.builder().user(selection.payments().getFirst().getUser()).build());
 
-        long receivedTotal = received.stream().mapToLong(Transaction::getAmount).sum();
-        List<Long> shares = shareCalculator.myShares(payments.stream().map(Transaction::getAmount).toList(), receivedTotal);
-
-        User user = payments.getFirst().getUser();
-        DutchPay dutchPay = dutchPayRepository.save(DutchPay.builder().user(user).build());
-
-        List<DutchPayTransaction> paymentLinks = new ArrayList<>();
-        for (int i = 0; i < payments.size(); i++) {
-            paymentLinks.add(paymentLink(dutchPay, payments.get(i), shares.get(i)));
-        }
-        List<DutchPayTransaction> links = new ArrayList<>(paymentLinks);
-        for (Transaction transaction : received) {
-            links.add(DutchPayTransaction.builder().dutchPay(dutchPay).transaction(transaction).build());
-        }
+        List<DutchPayTransaction> links = new ArrayList<>();
+        selection.all().forEach(transaction -> links.add(link(dutchPay, transaction)));
         dutchPayTransactionRepository.saveAll(links);
-
-        return toResponse(dutchPay, paymentLinks, received, receivedTotal);
+        recalculator.recalculate(links);
+        return toResponse(dutchPay, links);
     }
 
-    // 받은 돈 중 이 결제 몫(결제 금액 - 내 몫)을 결제가 반영된 블록에 돌려놓는다. 블록에 반영되지 않은 결제는 뺀 적이 없어 건너뛴다
-    private DutchPayTransaction paymentLink(DutchPay dutchPay, Transaction payment, long myShare) {
-        long returned = payment.getAmount() - myShare;
-        Block block = payment.getBlock();
-        boolean returnable = returned > 0 && block != null && block.getDeletedAt() == null;
-        if (returnable) {
-            block.deposit(returned);
+    public DutchPayResponse get(Long userId, Long dutchPayId) {
+        DutchPay dutchPay = owned(userId, dutchPayRepository.findById(dutchPayId));
+        return toResponse(dutchPay, dutchPayTransactionRepository.findAllByDutchPay_Id(dutchPayId));
+    }
+
+    // 고른 결제·받은 돈을 통째로 바꾼다. 친구가 나중에 보낸 돈을 붙이거나 잘못 고른 거래를 뺄 때 쓴다
+    @Transactional
+    public DutchPayResponse update(Long userId, Long dutchPayId, DutchPayRequest request) {
+        DutchPay dutchPay = owned(userId, dutchPayRepository.findForUpdate(dutchPayId));
+        List<DutchPayTransaction> current = dutchPayTransactionRepository.findAllByDutchPay_Id(dutchPayId);
+        Selection selection = select(userId, request, dutchPayId);
+
+        Set<Long> selected = selection.all().stream().map(Transaction::getId).collect(Collectors.toSet());
+        Set<Long> kept = new HashSet<>();
+        List<DutchPayTransaction> removed = new ArrayList<>();
+        List<DutchPayTransaction> links = new ArrayList<>();
+        for (DutchPayTransaction link : current) {
+            if (selected.contains(link.getTransaction().getId())) {
+                kept.add(link.getTransaction().getId());
+                links.add(link);
+            } else {
+                removed.add(link);
+            }
         }
-        return DutchPayTransaction.builder()
-                .dutchPay(dutchPay).transaction(payment).myShare(myShare)
-                .block(returnable ? block : null).returnedAmount(returnable ? returned : null)
-                .build();
+        recalculator.remove(removed);
+        List<DutchPayTransaction> added = selection.all().stream()
+                .filter(transaction -> !kept.contains(transaction.getId()))
+                .map(transaction -> link(dutchPay, transaction))
+                .toList();
+        dutchPayTransactionRepository.saveAll(added);
+        links.addAll(added);
+
+        recalculator.recalculate(links);
+        return toResponse(dutchPay, links);
+    }
+
+    // 해제: 블록에 돌려놓은 돈을 다시 빼고 묶음을 지운다. 결제는 다시 전체 금액이 쓴 돈이 된다
+    @Transactional
+    public void delete(Long userId, Long dutchPayId) {
+        DutchPay dutchPay = owned(userId, dutchPayRepository.findForUpdate(dutchPayId));
+        recalculator.dissolve(dutchPay, dutchPayTransactionRepository.findAllByDutchPay_Id(dutchPayId));
+    }
+
+    // 동기화에서 카드 취소·부분취소로 금액이 바뀐 거래. 묶인 더치페이가 있으면 다시 계산한다
+    @Transactional
+    public void recalculateFor(Long transactionId) {
+        transactionRepository.findById(transactionId).ifPresent(recalculator::recalculateFor);
+    }
+
+    private DutchPay owned(Long userId, Optional<DutchPay> found) {
+        DutchPay dutchPay = found.orElseThrow(() -> GeneralException.of(DutchPayErrorCode.DUTCH_PAY_NOT_FOUND));
+        if (!dutchPay.isOwnedBy(userId)) {
+            throw GeneralException.of(DutchPayErrorCode.DUTCH_PAY_FORBIDDEN);
+        }
+        return dutchPay;
+    }
+
+    private static DutchPayTransaction link(DutchPay dutchPay, Transaction transaction) {
+        return DutchPayTransaction.builder().dutchPay(dutchPay).transaction(transaction).build();
+    }
+
+    private record Selection(List<Transaction> payments, List<Transaction> received) {
+        List<Transaction> all() {
+            List<Transaction> all = new ArrayList<>(payments);
+            all.addAll(received);
+            return all;
+        }
+    }
+
+    // editingId: 수정 중인 더치페이. 그 더치페이에 이미 들어 있는 거래는 다시 골라도 된다
+    private Selection select(Long userId, DutchPayRequest request, Long editingId) {
+        List<Transaction> payments = loadOwned(userId, request.paymentTransactionIds(), request.receivedTransactionIds(), true);
+        List<Transaction> received = loadOwned(userId, request.receivedTransactionIds(), List.of(), false);
+        Selection selection = new Selection(payments, received);
+        checkNotLinked(selection, editingId);
+        return selection;
     }
 
     // 같은 거래를 두 번 고르지 않았는지, 내 거래인지, 방향이 맞는지, 취소되지 않았는지 본다
@@ -111,30 +162,38 @@ public class DutchPayService {
         return result;
     }
 
-    private void checkNotLinked(List<Transaction> payments, List<Transaction> received) {
-        List<Long> ids = new ArrayList<>();
-        payments.forEach(t -> ids.add(t.getId()));
-        received.forEach(t -> ids.add(t.getId()));
-        if (!dutchPayTransactionRepository.findAllByTransaction_IdIn(ids).isEmpty()) {
+    private void checkNotLinked(Selection selection, Long editingId) {
+        List<Long> ids = selection.all().stream().map(Transaction::getId).toList();
+        boolean linkedElsewhere = dutchPayTransactionRepository.findAllByTransaction_IdIn(ids).stream()
+                .anyMatch(link -> editingId == null || !editingId.equals(link.getDutchPay().getId()));
+        if (linkedElsewhere) {
             throw GeneralException.of(DutchPayErrorCode.DUTCH_PAY_ALREADY_LINKED);
         }
     }
 
-    private DutchPayResponse toResponse(DutchPay dutchPay, List<DutchPayTransaction> paymentLinks,
-                                        List<Transaction> received, long receivedTotal) {
-        List<DutchPayResponse.Payment> paymentItems = paymentLinks.stream()
-                .map(link -> new DutchPayResponse.Payment(link.getTransaction().getId(), link.getTransaction().getAmount(),
-                        link.getMyShare(), link.getBlock() == null ? null : new DutchPayResponse.ReturnedBlock(
-                        link.getBlock().getId(), link.getBlock().getName(), link.getReturnedAmount())))
-                .toList();
-        List<DutchPayResponse.Received> receivedItems = received.stream()
-                .map(t -> new DutchPayResponse.Received(t.getId(), t.getAmount()))
-                .toList();
-        long paidTotal = paymentLinks.stream().mapToLong(link -> link.getTransaction().getAmount()).sum();
-        long myShareTotal = paymentLinks.stream().mapToLong(DutchPayTransaction::getMyShare).sum();
-        long returnedTotal = paymentLinks.stream()
-                .mapToLong(link -> link.getReturnedAmount() == null ? 0 : link.getReturnedAmount()).sum();
-        return new DutchPayResponse(dutchPay.getId(), paymentItems, receivedItems,
+    // 취소된 거래는 합계에서 0원으로 본다
+    private DutchPayResponse toResponse(DutchPay dutchPay, List<DutchPayTransaction> links) {
+        List<DutchPayResponse.Payment> payments = new ArrayList<>();
+        List<DutchPayResponse.Received> received = new ArrayList<>();
+        long paidTotal = 0;
+        long receivedTotal = 0;
+        long myShareTotal = 0;
+        long returnedTotal = 0;
+        for (DutchPayTransaction link : links) {
+            Transaction transaction = link.getTransaction();
+            if (transaction.getDirection() == TransactionDirection.OUT) {
+                payments.add(new DutchPayResponse.Payment(transaction.getId(), transaction.getAmount(), link.getMyShare(),
+                        link.getBlock() == null ? null : new DutchPayResponse.ReturnedBlock(
+                                link.getBlock().getId(), link.getBlock().getName(), link.getReturnedAmount())));
+                paidTotal += transaction.isCanceled() ? 0 : transaction.getAmount();
+                myShareTotal += link.getMyShare();
+                returnedTotal += link.getReturnedAmount() == null ? 0 : link.getReturnedAmount();
+            } else {
+                received.add(new DutchPayResponse.Received(transaction.getId(), transaction.getAmount()));
+                receivedTotal += transaction.isCanceled() ? 0 : transaction.getAmount();
+            }
+        }
+        return new DutchPayResponse(dutchPay.getId(), payments, received,
                 paidTotal, receivedTotal, myShareTotal, returnedTotal, dutchPay.getVersion());
     }
 }

@@ -8,6 +8,8 @@ import org.springframework.http.HttpStatus;
 @Getter
 @AllArgsConstructor
 public enum DutchPayErrorCode implements BaseErrorCode {
+    DUTCH_PAY_NOT_FOUND(HttpStatus.NOT_FOUND, "DUTCH_PAY_NOT_FOUND", "더치페이를 찾을 수 없습니다."),
+    DUTCH_PAY_FORBIDDEN(HttpStatus.FORBIDDEN, "DUTCH_PAY_FORBIDDEN", "다른 사용자의 더치페이에는 접근할 수 없습니다."),
     DUTCH_PAY_DUPLICATE_TRANSACTION(HttpStatus.BAD_REQUEST, "DUTCH_PAY_DUPLICATE_TRANSACTION", "같은 거래를 두 번 고를 수 없습니다."),
     DUTCH_PAY_INVALID_PAYMENT(HttpStatus.BAD_REQUEST, "DUTCH_PAY_INVALID_PAYMENT", "결제는 나간 돈(출금)만 고를 수 있습니다."),
     DUTCH_PAY_INVALID_RECEIVED(HttpStatus.BAD_REQUEST, "DUTCH_PAY_INVALID_RECEIVED", "받은 돈은 들어온 돈(입금)만 고를 수 있습니다."),

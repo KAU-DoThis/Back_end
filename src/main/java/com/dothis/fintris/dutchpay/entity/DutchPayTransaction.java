@@ -56,4 +56,11 @@ public class DutchPayTransaction extends BaseCreatedEntity {
     private Block block;
 
     private Long returnedAmount;
+
+    // 다시 계산한 내 몫과 돌려놓은 블록·금액을 남긴다. 블록 잔액은 DutchPayRecalculator가 바꾼다
+    public void apply(Long myShare, Block block, Long returnedAmount) {
+        this.myShare = myShare;
+        this.block = block;
+        this.returnedAmount = returnedAmount;
+    }
 }
