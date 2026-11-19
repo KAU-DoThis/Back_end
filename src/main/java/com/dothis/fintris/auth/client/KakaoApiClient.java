@@ -35,7 +35,22 @@ public class KakaoApiClient {
 
     // 앱이 카카오 SDK로 받은 액세스 토큰으로 사용자 정보를 조회한다
     public KakaoUserInfo getUserInfo(String accessToken) {
+        // 앱 ID 설정이 없으면 검증할 수 없으므로 로그인시키지 않는다
+        if (kakaoProperties.getAppId() == null) {
+            throw GeneralException.of(AuthErrorCode.AUTH_KAKAO_API_FAILED);
+        }
         try {
+            // 다른 카카오 앱에서 발급된 토큰으로 로그인하는 것을 막는다
+            KakaoTokenInfoResponse tokenInfo = restClient.get()
+                    .uri(kakaoProperties.getTokenInfoUri())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(KakaoTokenInfoResponse.class);
+            if (tokenInfo == null || !kakaoProperties.getAppId().equals(tokenInfo.appId())) {
+                throw GeneralException.of(AuthErrorCode.AUTH_KAKAO_UNAUTHORIZED);
+            }
+
             KakaoUserResponse response = restClient.get()
                     .uri(kakaoProperties.getUserInfoUri())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
@@ -60,6 +75,10 @@ public class KakaoApiClient {
     }
 
     public record KakaoUserInfo(String providerUserId, String email) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record KakaoTokenInfoResponse(@JsonProperty("app_id") Long appId) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

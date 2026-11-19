@@ -28,6 +28,8 @@ jwt:
 
 kakao:
   user-info-uri: https://kapi.kakao.com/v2/user/me
+  # 없으면 카카오 로그인을 받지 않는다 (502 AUTH_KAKAO_API_FAILED)
+  app-id: ${KAKAO_APP_ID:}
 
 codef:
   base-url: ${CODEF_BASE_URL:https://development.codef.io}

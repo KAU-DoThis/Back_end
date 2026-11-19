@@ -81,8 +81,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(value = DataIntegrityViolationException.class)
     public ResponseEntity<Object> onDataIntegrityViolationException(DataIntegrityViolationException e,
                                                                     HttpServletRequest request) {
-        log.warn("DataIntegrityViolationException: {}", e.getMostSpecificCause().getMessage());
+        // DB 오류 문구에는 겹친 값(이메일 등)이 들어 있어 제약 조건 이름만 남긴다
+        log.warn("DataIntegrityViolationException: constraint={}, status={}",
+                constraintName(e), GeneralErrorCode.CONFLICT.getHttpStatus().value());
         return handleExceptionInternal(e, GeneralErrorCode.CONFLICT, null, request);
+    }
+
+    private String constraintName(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException violation) {
+                return violation.getConstraintName();
+            }
+        }
+        return null;
     }
 
     /**

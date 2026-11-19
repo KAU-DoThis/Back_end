@@ -24,7 +24,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.Locale;
 
 @Service
@@ -126,7 +130,7 @@ public class AuthService {
     public TokenResponse reissue(String refreshToken) {
         Claims claims = jwtTokenProvider.parseOrNull(refreshToken);
         if (claims == null || !jwtTokenProvider.isType(claims, JwtTokenProvider.TOKEN_TYPE_REFRESH)
-                || refreshTokenRepository.deleteByToken(refreshToken) == 0) {
+                || refreshTokenRepository.deleteByToken(hash(refreshToken)) == 0) {
             throw GeneralException.of(AuthErrorCode.AUTH_INVALID_REFRESH_TOKEN);
         }
         User user = userRepository.findById(jwtTokenProvider.getUserId(claims))
@@ -138,22 +142,35 @@ public class AuthService {
     // 이미 폐기됐거나 없는 토큰이어도 성공으로 처리한다
     @Transactional
     public void logout(String refreshToken) {
-        refreshTokenRepository.deleteByToken(refreshToken);
+        refreshTokenRepository.deleteByToken(hash(refreshToken));
     }
 
     private TokenResponse issueTokens(User user) {
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
         String refreshToken = jwtTokenProvider.createRefreshToken(user.getId());
+        LocalDateTime now = LocalDateTime.now();
+        // 만료된 행이 계속 쌓이지 않게 새로 발급할 때 이 사용자의 지난 토큰을 지운다
+        refreshTokenRepository.deleteExpiredByUserId(user.getId(), now);
         refreshTokenRepository.save(RefreshToken.builder()
                 .user(user)
-                .token(refreshToken)
-                .expiresAt(LocalDateTime.now().plusSeconds(jwtTokenProvider.getRefreshExpMs() / 1000))
+                .token(hash(refreshToken))
+                .expiresAt(now.plusSeconds(jwtTokenProvider.getRefreshExpMs() / 1000))
                 .build());
         return new TokenResponse(accessToken, refreshToken);
     }
 
     private static KakaoLoginResponse toKakaoResponse(TokenResponse tokens, boolean isNewUser) {
         return new KakaoLoginResponse(tokens.accessToken(), tokens.refreshToken(), isNewUser);
+    }
+
+    // DB가 유출돼도 토큰을 그대로 쓸 수 없게 SHA-256 해시만 저장한다
+    private static String hash(String token) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static String normalize(String email) {

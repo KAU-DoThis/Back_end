@@ -10,6 +10,7 @@ import com.dothis.fintris.auth.service.AuthService;
 import com.dothis.fintris.global.api.ApiResponse;
 import com.dothis.fintris.global.api.code.GeneralSuccessCode;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "Auth", description = "가입 및 로그인 (F-17)")
+@SecurityRequirements // 로그인 전에 쓰는 API라 Swagger에서 토큰을 붙이지 않는다
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor

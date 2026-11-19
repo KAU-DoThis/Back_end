@@ -135,6 +135,8 @@ JPA_DDL_AUTO=update
 # ---------- 앱 ----------
 # 32자 이상의 임의 문자열 (예: openssl rand -base64 48)
 JWT_SECRET=
+# 카카오 개발자 콘솔의 앱 ID(숫자). 없으면 카카오 로그인이 막힌다
+KAKAO_APP_ID=
 CODEF_BASE_URL=https://development.codef.io
 CODEF_CLIENT_ID=
 CODEF_CLIENT_SECRET=
