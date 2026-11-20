@@ -7,7 +7,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 
-// API 명세 v4 블록 객체의 계산 필드 (capacity, fillRate, dDay, statusSubLabel)와 목표형 권장 월 확보 금액
+// API 명세 v4 블록 객체의 계산 필드 (capacity, fillRate, dDay)와 목표형 권장 월 확보 금액
 public final class BlockCalculator {
 
     private BlockCalculator() {
@@ -54,19 +54,6 @@ public final class BlockCalculator {
 
     private static LocalDate payDateIn(YearMonth month, int payDay) {
         return month.atDay(Math.min(payDay, month.lengthOfMonth()));
-    }
-
-    // 상태 칩 옆 짧은 이유. 상태 판정(F-11)이 붙기 전까지는 금액만으로 알 수 있는 경우만 채운다
-    public static String statusSubLabel(Block block) {
-        Long capacity = capacity(block);
-        if (capacity == null || capacity <= 0 || block.getBalance() < capacity) {
-            return null;
-        }
-        return switch (block.getType()) {
-            case GOAL -> "목표 달성";
-            case FIXED -> "납부 준비 끝";
-            case SPENDING -> null;
-        };
     }
 
     // 목표형 월 확보 금액 권장값 = 남은 금액 ÷ 남은 개월 수, 올림 (F-07)

@@ -48,6 +48,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @EntityGraph(attributePaths = "linkedAccount")
     Slice<Transaction> findByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId, Pageable pageable);
 
+    // 블록 상태 판정: 고정지출 블록에 이번 달 낸 금액 합. 취소 거래는 블록 연결이 풀리기 전이라도 뺀다
+    @Query("""
+            select coalesce(sum(t.amount), 0) from Transaction t
+            where t.block.id = :blockId and t.occurredAt >= :from and t.isCanceled = false
+            """)
+    long sumBlockPaidSince(@Param("blockId") Long blockId, @Param("from") LocalDateTime from);
+
     // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
     @Query("""
             select new com.dothis.fintris.transaction.repository.BlockSpent(

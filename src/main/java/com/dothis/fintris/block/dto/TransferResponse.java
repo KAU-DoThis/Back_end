@@ -21,8 +21,8 @@ public record TransferResponse(
             @Schema(example = "SAFE") BlockStatus status,
             @Schema(description = "다음 수정·이동 요청에 보낸다", example = "5") Long version
     ) {
-        public static BlockBalance from(Block block) {
-            return new BlockBalance(block.getId(), block.getBalance(), block.getStatus(), block.getVersion());
+        public static BlockBalance from(Block block, BlockStatus status) {
+            return new BlockBalance(block.getId(), block.getBalance(), status, block.getVersion());
         }
     }
 

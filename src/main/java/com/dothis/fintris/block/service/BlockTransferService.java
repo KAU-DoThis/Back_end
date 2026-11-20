@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 // 블록 간 이동 확정. 미리보기와 같은 계산(BlockSimulationService)을 거친 뒤 반영한다
@@ -33,6 +34,7 @@ public class BlockTransferService {
     private final BlockSimulationService blockSimulationService;
     private final BlockRepository blockRepository;
     private final BlockTransferRepository blockTransferRepository;
+    private final BlockStatusService blockStatusService;
 
     @Transactional
     public TransferResponse transfer(Long userId, TransferRequest request) {
@@ -67,8 +69,10 @@ public class BlockTransferService {
         // 응답에 올라간 version을 담으려면 먼저 저장해야 한다
         blockRepository.flush();
 
-        return new TransferResponse(transfer.getId(), TransferResponse.BlockBalance.from(from),
-                TransferResponse.BlockBalance.from(to), dailyGuide(userId), null);
+        Map<Long, BlockStatusJudge.Judgement> statuses = blockStatusService.judgeAll(List.of(from, to));
+        return new TransferResponse(transfer.getId(),
+                TransferResponse.BlockBalance.from(from, statuses.get(from.getId()).status()),
+                TransferResponse.BlockBalance.from(to, statuses.get(to.getId()).status()), dailyGuide(userId), null);
     }
 
     private void checkVersion(Block block, Long expected) {
