@@ -51,19 +51,24 @@ public class BlockStatusService {
         BlockRule rule = block.getRule();
         return switch (block.getType()) {
             case SPENDING -> {
+                // 기간이 끝난 뒤 반영된 거래는 이번 기간 소진율에 넣지 않는다
                 LocalDate start = block.getStartDate();
+                LocalDate end = block.getDueDate();
+                LocalDate until = end == null || end.isAfter(today) ? today : end;
                 long spent = start == null || block.getId() == null ? 0
                         : transactionRepository.sumBlockSpent(block.getId(), start.atStartOfDay(),
-                        today.plusDays(1).atStartOfDay()).spent();
+                        until.plusDays(1).atStartOfDay()).spent();
                 yield BlockStatusJudge.spending(block.getBalance(), rule != null ? rule.monthlyAmount() : null,
                         start, block.getDueDate(), today, spent);
             }
             case FIXED -> {
                 Long userId = block.getUser().getId();
                 long waitingFunds = waitingFundByUser.computeIfAbsent(userId, waitingFundRepository::sumAmountByUserId);
-                boolean paidThisMonth = block.getId() != null && transactionRepository
-                        .existsByBlock_IdAndOccurredAtGreaterThanEqual(block.getId(), monthStart(today));
-                yield BlockStatusJudge.fixed(block.getBalance(), rule != null ? rule.payAmount() : null,
+                // 금액 범위 조건이면 일부만 낸 거래도 연결될 수 있어서, 낸 금액 합이 납부액 이상이어야 납부 완료로 본다
+                Long payAmount = rule != null ? rule.payAmount() : null;
+                boolean paidThisMonth = block.getId() != null && payAmount != null && payAmount > 0
+                        && transactionRepository.sumBlockPaidSince(block.getId(), monthStart(today)) >= payAmount;
+                yield BlockStatusJudge.fixed(block.getBalance(), payAmount,
                         rule != null ? rule.payDay() : null, today, waitingFunds, paidThisMonth);
             }
             case GOAL -> {
