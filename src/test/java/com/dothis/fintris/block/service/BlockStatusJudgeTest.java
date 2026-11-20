@@ -42,6 +42,25 @@ class BlockStatusJudgeTest {
         }
 
         @Test
+        @DisplayName("정확히 10%p는 안전, 정확히 25%p는 주의 (부동소수점 오차로 넘어가지 않는다)")
+        void exactBoundary() {
+            LocalDate start = LocalDate.of(2026, 11, 1);
+            LocalDate end = LocalDate.of(2026, 11, 30);
+            LocalDate day7 = LocalDate.of(2026, 11, 7); // 경과율 7/30 = 23.33%
+
+            // 100,000 ÷ 300,000 = 33.33% → 정확히 +10%p
+            assertThat(BlockStatusJudge.spending(200_000, 300_000L, start, end, day7, 100_000).status())
+                    .isEqualTo(BlockStatus.SAFE);
+            assertThat(BlockStatusJudge.spending(199_999, 300_000L, start, end, day7, 100_001).status())
+                    .isEqualTo(BlockStatus.CAUTION);
+            // 145,000 ÷ 300,000 = 48.33% → 정확히 +25%p
+            assertThat(BlockStatusJudge.spending(155_000, 300_000L, start, end, day7, 145_000).status())
+                    .isEqualTo(BlockStatus.CAUTION);
+            assertThat(BlockStatusJudge.spending(154_999, 300_000L, start, end, day7, 145_001).status())
+                    .isEqualTo(BlockStatus.DANGER);
+        }
+
+        @Test
         @DisplayName("잔액이 0이면 쓴 속도와 상관없이 위험")
         void emptyBalance() {
             assertThat(BlockStatusJudge.spending(0, 3_000_000L, START, END, DAY_10, 0))

@@ -47,13 +47,17 @@ public final class BlockStatusJudge {
         long periodDays = ChronoUnit.DAYS.between(start, end) + 1;
         long elapsedDays = ChronoUnit.DAYS.between(start, today.isAfter(end) ? end : today) + 1;
 
+        // 경계(정확히 10%p, 25%p)가 부동소수점 오차로 넘어가지 않게 정수 교차곱으로 비교한다
+        // gap(%p) × 배분액 × 기간 일수 = 쓴 돈 × 100 × 기간 일수 − 지난 날 × 100 × 배분액
+        long gapScaled = periodSpent * 100 * periodDays - elapsedDays * 100 * allocated;
+        long unit = allocated * periodDays;
+        if (gapScaled <= CAUTION_MARGIN * unit) {
+            return Judgement.safe(null);
+        }
         double burnRate = periodSpent * 100.0 / allocated;
         double elapsedRate = elapsedDays * 100.0 / periodDays;
         double gap = burnRate - elapsedRate;
-        if (gap <= CAUTION_MARGIN) {
-            return Judgement.safe(null);
-        }
-        return new Judgement(gap <= DANGER_MARGIN ? BlockStatus.CAUTION : BlockStatus.DANGER, "소진 빠름",
+        return new Judgement(gapScaled <= DANGER_MARGIN * unit ? BlockStatus.CAUTION : BlockStatus.DANGER, "소진 빠름",
                 "기간의 %d%%가 지났는데 %d%%를 썼어요. 계획보다 %d%%p 빨라요."
                         .formatted(Math.round(elapsedRate), Math.round(burnRate), Math.round(gap)));
     }
