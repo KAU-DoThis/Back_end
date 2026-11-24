@@ -138,6 +138,11 @@ public class Transaction extends BaseEntity {
         this.status = TransactionStatus.CONFIRMED;
     }
 
+    // 카테고리는 그대로 두고 맥락(야간 배달 이유 등)만 남긴다 (F-15)
+    public void tagContext(String tag) {
+        this.contextTag = tag;
+    }
+
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);
     }
