@@ -53,6 +53,7 @@ public final class ContextQuestionText {
         return "%s · %s ••%s".formatted(date, institution, last4.substring(last4.length() - 2));
     }
 
+    public static final String PENDING_SUB_TEXT = "답해주면 소비 분석이 정확해져요";
     static final String CONTEXT_SAVED = "알려줘서 고마워요. 답을 기록해 뒀어요";
 
     // 답변 결과 문장. 예: "생활/생필품으로 바꾸고 생활비 블록에 그대로 둬요"

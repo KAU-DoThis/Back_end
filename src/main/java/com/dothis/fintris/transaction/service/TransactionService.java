@@ -5,6 +5,9 @@ import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.category.repository.CategoryRepository;
+import com.dothis.fintris.contextquestion.entity.QuestionStatus;
+import com.dothis.fintris.contextquestion.repository.ContextQuestionRepository;
+import com.dothis.fintris.contextquestion.service.ContextQuestionText;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
@@ -12,6 +15,7 @@ import com.dothis.fintris.transaction.dto.TransactionListResponse;
 import com.dothis.fintris.transaction.dto.TransactionListResponse.Counts;
 import com.dothis.fintris.transaction.dto.TransactionListResponse.Day;
 import com.dothis.fintris.transaction.dto.TransactionListResponse.Item;
+import com.dothis.fintris.transaction.dto.TransactionListResponse.PendingQuestion;
 import com.dothis.fintris.transaction.dto.TransactionListResponse.Period;
 import com.dothis.fintris.transaction.dto.TransactionListResponse.Summary;
 import com.dothis.fintris.transaction.dto.TransactionResponse;
@@ -51,6 +55,7 @@ public class TransactionService {
     private final LinkedAccountRepository linkedAccountRepository;
     private final CategoryRepository categoryRepository;
     private final BlockReflector blockReflector;
+    private final ContextQuestionRepository contextQuestionRepository;
 
     public TransactionResponse getTransaction(Long userId, Long transactionId) {
         return TransactionResponse.from(ownedTransaction(userId, transactionId));
@@ -120,7 +125,16 @@ public class TransactionService {
                 PageRequest.of(page, size));
         List<Day> days = groupByDay(userId, slice.getContent(), linkedAccountId, blockId, status);
 
-        return new TransactionListResponse(summary, null, counts, days, slice.hasNext());
+        return new TransactionListResponse(summary, pendingQuestion(userId, today), counts, days, slice.hasNext());
+    }
+
+    private PendingQuestion pendingQuestion(Long userId, LocalDate today) {
+        return contextQuestionRepository
+                .findFirstByUser_IdAndStatusInOrderByTransaction_OccurredAtDesc(userId, QuestionStatus.OPEN)
+                .map(question -> new PendingQuestion(question.getId(),
+                        ContextQuestionText.text(question.getType(), question.getTransaction(), today),
+                        ContextQuestionText.PENDING_SUB_TEXT))
+                .orElse(null);
     }
 
     private LinkedAccount ownedAccount(Long userId, Long linkedAccountId) {

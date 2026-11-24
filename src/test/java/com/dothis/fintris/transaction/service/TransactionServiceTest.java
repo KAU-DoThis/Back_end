@@ -7,6 +7,10 @@ import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.category.entity.CategoryType;
 import com.dothis.fintris.category.repository.CategoryRepository;
+import com.dothis.fintris.contextquestion.entity.ContextQuestion;
+import com.dothis.fintris.contextquestion.entity.QuestionStatus;
+import com.dothis.fintris.contextquestion.entity.QuestionType;
+import com.dothis.fintris.contextquestion.repository.ContextQuestionRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
@@ -60,6 +64,7 @@ class TransactionServiceTest {
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock CategoryRepository categoryRepository;
     @Mock BlockReflector blockReflector;
+    @Mock ContextQuestionRepository contextQuestionRepository;
     @InjectMocks TransactionService service;
 
     private User user(Long id) {
@@ -199,6 +204,29 @@ class TransactionServiceTest {
                 .containsExactly(3L, 2L);
         assertThat(response.hasNext()).isTrue();
         assertThat(response.pendingQuestion()).isNull();
+        assertThat(response.pendingQuestion()).isNull();
+    }
+
+    @Test
+    @DisplayName("답하지 않은 맥락 질문이 있으면 가장 최근 것을 목록 위에 띄운다")
+    void getTransactionsWithPendingQuestion() {
+        Transaction transaction = transaction(user(USER_ID)).build();
+        ContextQuestion question = ContextQuestion.builder().user(user(USER_ID)).transaction(transaction)
+                .type(QuestionType.UNKNOWN_ITEM).options(List.of("LIVING", "ETC")).build();
+        ReflectionTestUtils.setField(question, "id", 55L);
+        when(transactionRepository.sumTotals(USER_ID, OCT_1, NOV_1, null, null))
+                .thenReturn(new TransactionTotals(0L, 0L, 0L, 0L));
+        when(transactionRepository.findPage(eq(USER_ID), eq(OCT_1), eq(NOV_1), isNull(), isNull(), isNull(), any()))
+                .thenReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
+        when(contextQuestionRepository.findFirstByUser_IdAndStatusInOrderByTransaction_OccurredAtDesc(
+                USER_ID, QuestionStatus.OPEN)).thenReturn(Optional.of(question));
+
+        TransactionListResponse response = service.getTransactions(USER_ID, OCTOBER, null, null,
+                TransactionListFilter.ALL, 0, 20);
+
+        assertThat(response.pendingQuestion().questionId()).isEqualTo(55L);
+        assertThat(response.pendingQuestion().text()).endsWith("네이버페이 38,000원, 무엇을 샀어요?");
+        assertThat(response.pendingQuestion().subText()).isEqualTo("답해주면 소비 분석이 정확해져요");
     }
 
     @Test

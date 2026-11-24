@@ -10,7 +10,6 @@ import java.util.List;
 @Schema(description = "거래 목록 응답")
 public record TransactionListResponse(
         Summary summary,
-        // TODO: 맥락 질문(F-15)이 붙으면 가장 최근 미답변 질문 1개로 채운다
         @Schema(description = "가장 최근 미답변 맥락 질문. 없으면 null") PendingQuestion pendingQuestion,
         Counts counts,
         List<Day> days,

@@ -40,9 +40,7 @@ public class ContextQuestionService {
 
     // PENDING은 "아직 답하지 않은 질문"이라 푸시를 보낸 것(SENT)도 함께 준다
     public List<ContextQuestionResponse> getQuestions(Long userId, QuestionStatus status) {
-        List<QuestionStatus> statuses = status == QuestionStatus.PENDING
-                ? List.of(QuestionStatus.PENDING, QuestionStatus.SENT)
-                : List.of(status);
+        List<QuestionStatus> statuses = status == QuestionStatus.PENDING ? QuestionStatus.OPEN : List.of(status);
         List<ContextQuestion> questions = contextQuestionRepository
                 .findAllByUser_IdAndStatusInOrderByTransaction_OccurredAtDesc(userId, statuses);
         if (questions.isEmpty()) {
