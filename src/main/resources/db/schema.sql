@@ -387,15 +387,19 @@ CREATE TABLE notifications (
     body                VARCHAR(500) NULL,
     ref_id              BIGINT       NULL COMMENT '눌렀을 때 열 대상 ID (질문이면 context_question_id)',
     read_at             DATETIME(6)  NULL,
+    push_status         VARCHAR(10)  NULL COMMENT 'HELD(받지 않는 시간이라 미룸) / SENT / SKIPPED(설정·건수로 안 보냄) / FAILED',
+    pushed_at           DATETIME(6)  NULL,
     created_at          DATETIME(6)  NOT NULL,
     PRIMARY KEY (notification_id),
     KEY idx_notifications_user_created (user_id, created_at),
+    KEY idx_notifications_push (push_status, created_at),
     CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE notification_logs (
     notification_log_id BIGINT       NOT NULL AUTO_INCREMENT,
     user_id             BIGINT       NOT NULL,
+    notification_id     BIGINT       NULL COMMENT '보낸 알림. 알림이 30일 뒤 지워져도 기록은 남는다',
     type                VARCHAR(30)  NOT NULL,
     sent_at             DATETIME(6)  NOT NULL,
     delivered           TINYINT(1)   NOT NULL DEFAULT 0,

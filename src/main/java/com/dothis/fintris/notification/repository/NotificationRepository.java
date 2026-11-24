@@ -2,6 +2,7 @@ package com.dothis.fintris.notification.repository;
 
 import com.dothis.fintris.notification.entity.Notification;
 import com.dothis.fintris.notification.entity.NotificationType;
+import com.dothis.fintris.notification.entity.PushStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -27,6 +28,15 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     // 같은 대상에 같은 종류 알림을 이미 남겼는지 (소진 속도는 블록 기간 시작부터 본다)
     boolean existsByUser_IdAndTypeAndRefIdAndCreatedAtGreaterThanEqual(
             Long userId, NotificationType type, Long refId, LocalDateTime since);
+
+    // 오늘 푸시로 보낸 수 (하루 최대 건수 확인용)
+    long countByUser_IdAndPushStatusAndPushedAtGreaterThanEqual(Long userId, PushStatus status, LocalDateTime since);
+
+    long countByUser_IdAndTypeAndPushStatusAndPushedAtGreaterThanEqual(
+            Long userId, NotificationType type, PushStatus status, LocalDateTime since);
+
+    // 미뤄 둔 푸시. 하루가 지난 건 늦은 알림이라 다시 보내지 않는다
+    List<Notification> findAllByPushStatusAndCreatedAtGreaterThanEqual(PushStatus status, LocalDateTime since);
 
     @Modifying
     @Query("delete from Notification n where n.createdAt < :before")

@@ -51,12 +51,25 @@ public class Notification extends BaseCreatedEntity {
 
     private LocalDateTime readAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private PushStatus pushStatus; // 아직 정하지 않았으면 null
+
+    private LocalDateTime pushedAt;
+
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);
     }
 
     public boolean isRead() {
         return readAt != null;
+    }
+
+    public void pushed(PushStatus status, LocalDateTime now) {
+        this.pushStatus = status;
+        if (status == PushStatus.SENT) {
+            this.pushedAt = now;
+        }
     }
 
     // 이미 읽었으면 처음 읽은 시각을 둔다
