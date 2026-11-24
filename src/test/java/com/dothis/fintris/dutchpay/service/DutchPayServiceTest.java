@@ -19,6 +19,7 @@ import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.User;
+import com.dothis.fintris.waitingfund.repository.WaitingFundRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,12 +50,13 @@ class DutchPayServiceTest {
     @Mock DutchPayRepository dutchPayRepository;
     @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
     @Mock TransactionRepository transactionRepository;
+    @Mock WaitingFundRepository waitingFundRepository;
     private DutchPayService service;
 
     @BeforeEach
     void setUp() {
         DutchPayRecalculator recalculator = new DutchPayRecalculator(
-                dutchPayRepository, dutchPayTransactionRepository, new DutchPayShareCalculator());
+                dutchPayRepository, dutchPayTransactionRepository, new DutchPayShareCalculator(), waitingFundRepository);
         service = new DutchPayService(dutchPayRepository, dutchPayTransactionRepository, transactionRepository, recalculator);
     }
 
@@ -98,7 +100,7 @@ class DutchPayServiceTest {
     }
 
     private static DutchPayRequest request(List<Long> payments, List<Long> received) {
-        return new DutchPayRequest(payments, received);
+        return new DutchPayRequest(payments, received, null);
     }
 
     private static BaseErrorCode codeOf(Throwable e) {
@@ -134,7 +136,7 @@ class DutchPayServiceTest {
     }
 
     @Test
-    @DisplayName("받은 돈이 결제보다 많으면 결제 금액까지만 돌려놓는다")
+    @DisplayName("받은 돈이 결제보다 많으면 결제 금액까지만 돌려놓고 넘친 돈은 나눌 돈으로 넣는다")
     void receivedMoreThanPaid() {
         Transaction food = transaction(1L, user, 40_000L, TransactionDirection.OUT, living);
         Transaction friend = transaction(3L, user, 45_000L, TransactionDirection.IN, null);
@@ -146,11 +148,12 @@ class DutchPayServiceTest {
         assertThat(response.myShareTotal()).isZero();
         assertThat(response.receivedTotal()).isEqualTo(45_000L);
         assertThat(response.returnedTotal()).isEqualTo(40_000L);
+        assertThat(response.bufferAmount()).isEqualTo(5_000L);
         assertThat(living.getBalance()).isEqualTo(140_000L);
     }
 
     @Test
-    @DisplayName("블록에 반영되지 않은 결제는 돌려놓지 않고, 반영된 결제만 돌려놓는다")
+    @DisplayName("블록에 반영되지 않은 결제 몫은 돌려놓을 곳이 없어 나눌 돈으로 넣는다")
     void unreflectedPaymentSkipped() {
         Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, null);
         Transaction cafe = transaction(2L, user, 10_000L, TransactionDirection.OUT, living);
@@ -162,7 +165,38 @@ class DutchPayServiceTest {
 
         assertThat(response.payments().get(0).returnedBlock()).isNull();
         assertThat(response.payments().get(1).returnedBlock().amount()).isEqualTo(5_000L);
+        assertThat(response.bufferAmount()).isEqualTo(15_000L);
         assertThat(living.getBalance()).isEqualTo(105_000L);
+    }
+
+    @Test
+    @DisplayName("내 몫을 직접 정하면 결제 - 내 몫을 돌려놓고, 덜 받은 돈은 아직 받을 돈으로 보여 준다")
+    void chosenMyShare() {
+        Transaction dinner = transaction(1L, user, 120_000L, TransactionDirection.OUT, living);
+        Transaction friend = transaction(3L, user, 60_000L, TransactionDirection.IN, null);
+        given(List.of(dinner), List.of(friend));
+        givenSaved();
+
+        DutchPayResponse response = service.create(USER_ID,
+                new DutchPayRequest(List.of(1L), List.of(3L), 30_000L));
+
+        assertThat(response.myShareTotal()).isEqualTo(30_000L);
+        assertThat(response.myShareEdited()).isTrue();
+        assertThat(response.returnedTotal()).isEqualTo(60_000L);
+        assertThat(response.outstandingAmount()).isEqualTo(30_000L);
+        assertThat(response.bufferAmount()).isZero();
+        assertThat(living.getBalance()).isEqualTo(160_000L);
+    }
+
+    @Test
+    @DisplayName("내 몫이 결제 합보다 크면 400")
+    void myShareOverPaid() {
+        Transaction dinner = transaction(1L, user, 120_000L, TransactionDirection.OUT, living);
+        given(List.of(dinner), List.of());
+        when(dutchPayTransactionRepository.findAllByTransaction_IdIn(anyList())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.create(USER_ID, new DutchPayRequest(List.of(1L), List.of(), 130_000L)))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(DutchPayErrorCode.DUTCH_PAY_INVALID_MY_SHARE));
     }
 
     @Test
@@ -271,6 +305,61 @@ class DutchPayServiceTest {
         assertThat(response.myShareTotal()).isEqualTo(5_000L);
         assertThat(response.returnedTotal()).isEqualTo(25_000L);
         assertThat(living.getBalance()).isEqualTo(125_000L);
+    }
+
+    @Test
+    @DisplayName("수정: 내 몫을 안 보내면 사용자가 고쳐 둔 내 몫을 그대로 둔다")
+    void updateKeepsChosenMyShare() {
+        Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
+        Transaction friendA = transaction(3L, user, 15_000L, TransactionDirection.IN, null);
+        Transaction friendB = transaction(4L, user, 10_000L, TransactionDirection.IN, null);
+        living.deposit(15_000L);
+        DutchPay dutchPay = existing(food, friendA);
+        dutchPay.changeMyShare(10_000L);
+        given(List.of(food), List.of(friendA, friendB));
+        when(dutchPayTransactionRepository.findAllByTransaction_IdIn(anyList())).thenReturn(List.of());
+
+        DutchPayResponse response = service.update(USER_ID, 7L, request(List.of(1L), List.of(3L, 4L)));
+
+        assertThat(response.myShareTotal()).isEqualTo(10_000L);
+        assertThat(response.myShareEdited()).isTrue();
+        assertThat(response.returnedTotal()).isEqualTo(20_000L);
+        assertThat(response.bufferAmount()).isEqualTo(5_000L);
+        assertThat(living.getBalance()).isEqualTo(120_000L);
+    }
+
+    @Test
+    @DisplayName("내 몫 수정 버튼: 고친 값으로 다시 계산하고, null이면 서비스가 정한 값으로 되돌린다")
+    void changeMyShare() {
+        Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
+        Transaction friendA = transaction(3L, user, 15_000L, TransactionDirection.IN, null);
+        living.deposit(15_000L);
+        existing(food, friendA);
+
+        DutchPayResponse edited = service.changeMyShare(USER_ID, 7L, 20_000L);
+
+        assertThat(edited.myShareTotal()).isEqualTo(20_000L);
+        assertThat(edited.myShareEdited()).isTrue();
+        assertThat(edited.returnedTotal()).isEqualTo(10_000L);
+        assertThat(edited.bufferAmount()).isEqualTo(5_000L);
+        assertThat(living.getBalance()).isEqualTo(110_000L);
+
+        DutchPayResponse auto = service.changeMyShare(USER_ID, 7L, null);
+
+        assertThat(auto.myShareTotal()).isEqualTo(15_000L);
+        assertThat(auto.myShareEdited()).isFalse();
+        assertThat(auto.bufferAmount()).isZero();
+        assertThat(living.getBalance()).isEqualTo(115_000L);
+    }
+
+    @Test
+    @DisplayName("내 몫 수정 버튼: 결제 합보다 크면 400")
+    void changeMyShareOverPaid() {
+        existing(transaction(1L, user, 30_000L, TransactionDirection.OUT, living),
+                transaction(3L, user, 15_000L, TransactionDirection.IN, null));
+
+        assertThatThrownBy(() -> service.changeMyShare(USER_ID, 7L, 40_000L))
+                .extracting(DutchPayServiceTest::codeOf).isEqualTo(DutchPayErrorCode.DUTCH_PAY_INVALID_MY_SHARE);
     }
 
     @Test

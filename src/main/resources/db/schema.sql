@@ -287,12 +287,16 @@ CREATE TABLE receivables (
 CREATE TABLE dutch_pays (
     dutch_pay_id        BIGINT       NOT NULL AUTO_INCREMENT,
     user_id             BIGINT       NOT NULL,
+    my_share            BIGINT       NULL COMMENT '사용자가 정한 내 몫 합. NULL이면 결제 합 - 받은 돈(0 밑으로는 안 감)',
+    waiting_fund_id     BIGINT       NULL COMMENT '받은 돈 중 블록에 돌려놓고 남은 돈을 넣은 나눌 돈',
+    buffer_amount       BIGINT       NULL COMMENT '그 나눌 돈에 넣은 금액. 수정·해제 때 이만큼 되돌린다',
     version             BIGINT       NOT NULL DEFAULT 0 COMMENT '@Version 낙관적 잠금',
     created_at          DATETIME(6)  NOT NULL,
     updated_at          DATETIME(6)  NOT NULL,
     PRIMARY KEY (dutch_pay_id),
     KEY idx_dutch_pays_user (user_id),
-    CONSTRAINT fk_dutch_pays_user FOREIGN KEY (user_id) REFERENCES users (user_id)
+    CONSTRAINT fk_dutch_pays_user         FOREIGN KEY (user_id)         REFERENCES users (user_id),
+    CONSTRAINT fk_dutch_pays_waiting_fund FOREIGN KEY (waiting_fund_id) REFERENCES waiting_funds (waiting_fund_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE dutch_pay_transactions (

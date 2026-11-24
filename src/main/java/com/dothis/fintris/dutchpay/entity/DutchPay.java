@@ -2,6 +2,7 @@ package com.dothis.fintris.dutchpay.entity;
 
 import com.dothis.fintris.global.entity.BaseEntity;
 import com.dothis.fintris.user.entity.User;
+import com.dothis.fintris.waitingfund.entity.WaitingFund;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -34,9 +35,27 @@ public class DutchPay extends BaseEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    private Long myShare; // 사용자가 정한 내 몫 합. null이면 결제 합 - 받은 돈
+
+    // 받은 돈 중 블록에 돌려놓고 남은 돈(올림해서 보낸 차액, 섞여 들어온 내 돈)을 넣은 나눌 돈
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "waiting_fund_id")
+    private WaitingFund waitingFund;
+
+    private Long bufferAmount; // 그 나눌 돈에 넣은 금액. 다시 계산할 때 차이만큼만 더하고 뺀다
+
     // 블록 잔액을 같이 바꾸므로 동시 수정을 막는다
     @Version
     private Long version;
+
+    public void changeMyShare(Long myShare) {
+        this.myShare = myShare;
+    }
+
+    public void applyBuffer(WaitingFund waitingFund, long bufferAmount) {
+        this.waitingFund = waitingFund;
+        this.bufferAmount = bufferAmount;
+    }
 
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);

@@ -25,10 +25,10 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-// 더치페이 (N-06). 거래는 그대로 두고 묶음에 내 몫만 남긴다.
-// 받은 돈은 결제마다 (결제 금액 - 내 몫)만큼 그 결제가 반영된 블록에 돌려놓는다. 합은 받은 돈(결제 합까지)이다.
-// 실제로 통장에 들어온 돈이라 불변식이 유지되고, 블록마다 내 몫만큼만 빠진 상태가 된다.
-// 계산과 블록 잔액 변경은 DutchPayRecalculator가 한다
+// 더치페이 (N-06). 거래는 그대로 두고 묶음에 내 몫만 남긴다. 거래 목록에는 통장에 찍힌 금액 그대로 보인다
+// 내 몫은 사용자가 정한다(없으면 결제 합 - 받은 돈). 1/N로 나누지 않는다
+// 결제 - 내 몫은 그 결제가 반영된 블록에 돌려놓고(받은 돈까지만), 받은 돈의 나머지는 나눌 돈으로 넣는다
+// 계산과 블록·나눌 돈 변경은 DutchPayRecalculator가 한다
 // 주의: 입금을 대기 자금으로 넣는 기능이 붙으면 더치페이에 묶인 입금은 건너뛰어야 한다(두 번 잡힘)
 @Service
 @RequiredArgsConstructor
@@ -43,7 +43,8 @@ public class DutchPayService {
     @Transactional
     public DutchPayResponse create(Long userId, DutchPayRequest request) {
         Selection selection = select(userId, request, null);
-        DutchPay dutchPay = dutchPayRepository.save(DutchPay.builder().user(selection.payments().getFirst().getUser()).build());
+        DutchPay dutchPay = dutchPayRepository.save(DutchPay.builder().user(selection.payments().getFirst().getUser())
+                .myShare(request.myShare()).build());
 
         List<DutchPayTransaction> links = new ArrayList<>();
         selection.all().forEach(transaction -> links.add(link(dutchPay, transaction)));
@@ -63,6 +64,10 @@ public class DutchPayService {
         DutchPay dutchPay = owned(userId, dutchPayRepository.findForUpdate(dutchPayId));
         List<DutchPayTransaction> current = dutchPayTransactionRepository.findAllByDutchPay_Id(dutchPayId);
         Selection selection = select(userId, request, dutchPayId);
+        // 내 몫을 안 보내면 사용자가 고쳐 둔 값을 그대로 둔다. 자동으로 되돌리기는 changeMyShare로 한다
+        if (request.myShare() != null) {
+            dutchPay.changeMyShare(request.myShare());
+        }
 
         Set<Long> selected = selection.all().stream().map(Transaction::getId).collect(Collectors.toSet());
         Set<Long> kept = new HashSet<>();
@@ -84,6 +89,22 @@ public class DutchPayService {
         dutchPayTransactionRepository.saveAll(added);
         links.addAll(added);
 
+        recalculator.recalculate(links);
+        return toResponse(dutchPay, links);
+    }
+
+    // 수정 버튼으로 내 몫만 고친다. null이면 서비스가 정한 값(결제 합 - 받은 돈)으로 되돌린다
+    @Transactional
+    public DutchPayResponse changeMyShare(Long userId, Long dutchPayId, Long myShare) {
+        DutchPay dutchPay = owned(userId, dutchPayRepository.findForUpdate(dutchPayId));
+        List<DutchPayTransaction> links = dutchPayTransactionRepository.findAllByDutchPay_Id(dutchPayId);
+        long paidTotal = links.stream().map(DutchPayTransaction::getTransaction)
+                .filter(t -> t.getDirection() == TransactionDirection.OUT && !t.isCanceled())
+                .mapToLong(Transaction::getAmount).sum();
+        if (myShare != null && myShare > paidTotal) {
+            throw GeneralException.of(DutchPayErrorCode.DUTCH_PAY_INVALID_MY_SHARE);
+        }
+        dutchPay.changeMyShare(myShare);
         recalculator.recalculate(links);
         return toResponse(dutchPay, links);
     }
@@ -127,6 +148,10 @@ public class DutchPayService {
         List<Transaction> received = loadOwned(userId, request.receivedTransactionIds(), List.of(), false);
         Selection selection = new Selection(payments, received);
         checkNotLinked(selection, editingId);
+        long paidTotal = payments.stream().filter(t -> !t.isCanceled()).mapToLong(Transaction::getAmount).sum();
+        if (request.myShare() != null && request.myShare() > paidTotal) {
+            throw GeneralException.of(DutchPayErrorCode.DUTCH_PAY_INVALID_MY_SHARE);
+        }
         return selection;
     }
 
@@ -193,7 +218,10 @@ public class DutchPayService {
                 receivedTotal += transaction.isCanceled() ? 0 : transaction.getAmount();
             }
         }
+        long buffer = dutchPay.getBufferAmount() == null ? 0 : dutchPay.getBufferAmount();
+        long outstanding = Math.max(0, paidTotal - myShareTotal - receivedTotal);
         return new DutchPayResponse(dutchPay.getId(), payments, received,
-                paidTotal, receivedTotal, myShareTotal, returnedTotal, dutchPay.getVersion());
+                paidTotal, receivedTotal, myShareTotal, dutchPay.getMyShare() != null, returnedTotal, outstanding, buffer,
+                dutchPay.getWaitingFund() == null ? null : dutchPay.getWaitingFund().getId(), dutchPay.getVersion());
     }
 }
