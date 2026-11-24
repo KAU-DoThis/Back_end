@@ -93,7 +93,7 @@ class TransactionServiceTest {
     }
 
     @Test
-    @DisplayName("더치페이에 묶인 거래는 더치페이 ID와 내 몫을 같이 돌려준다")
+    @DisplayName("더치페이에 묶인 거래는 금액은 그대로 두고 더치페이 ID만 같이 돌려준다")
     void dutchPayLinked() {
         Transaction transaction = transaction(user(USER_ID)).build();
         given(transaction);
@@ -102,8 +102,10 @@ class TransactionServiceTest {
         when(dutchPayTransactionRepository.findByTransaction_Id(TRANSACTION_ID)).thenReturn(Optional.of(
                 DutchPayTransaction.builder().dutchPay(dutchPay).transaction(transaction).myShare(15_000L).build()));
 
-        assertThat(service.getTransaction(USER_ID, TRANSACTION_ID).dutchPay())
-                .isEqualTo(new TransactionResponse.DutchPayItem(7L, 15_000L));
+        TransactionResponse response = service.getTransaction(USER_ID, TRANSACTION_ID);
+
+        assertThat(response.dutchPay()).isEqualTo(new TransactionResponse.DutchPayItem(7L));
+        assertThat(response.amount()).isEqualTo(38_000L);
     }
 
     @Test
