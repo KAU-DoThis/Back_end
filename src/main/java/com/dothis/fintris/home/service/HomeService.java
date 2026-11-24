@@ -8,6 +8,7 @@ import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.home.dto.HomeResponse;
+import com.dothis.fintris.notification.service.NotificationService;
 import com.dothis.fintris.transaction.repository.BlockSpent;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.user.code.UserErrorCode;
@@ -39,6 +40,7 @@ public class HomeService {
     private final WaitingFundService waitingFundService;
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
+    private final NotificationService notificationService;
 
     public HomeResponse getHome(Long userId) {
         if (!userRepository.existsById(userId)) {
@@ -78,7 +80,7 @@ public class HomeService {
                 overAllocated,
                 blockService.getBlocks(userId, null),
                 oldest(accounts, LinkedAccount::getLastSyncedAt).orElse(null),
-                0,
+                (int) notificationService.countUnread(userId),
                 0
         );
     }

@@ -44,7 +44,6 @@ public record HomeResponse(
         @Schema(description = "마지막 동기화 시각. 계좌 중 가장 오래된 값, 계좌가 없으면 null", example = "2026-10-14T09:00:00")
         LocalDateTime lastSyncedAt,
 
-        // TODO: 알림함(F-22)이 붙으면 읽지 않은 알림 수로 바꾼다
         @Schema(description = "읽지 않은 알림 수", example = "0")
         int unreadNotificationCount,
 

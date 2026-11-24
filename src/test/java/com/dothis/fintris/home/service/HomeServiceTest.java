@@ -8,6 +8,7 @@ import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.service.BlockService;
 import com.dothis.fintris.home.dto.HomeResponse;
+import com.dothis.fintris.notification.service.NotificationService;
 import com.dothis.fintris.transaction.repository.BlockSpent;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.transaction.repository.TransactionTotals;
@@ -45,13 +46,14 @@ class HomeServiceTest {
     @Mock WaitingFundService waitingFundService;
     @Mock UserRepository userRepository;
     @Mock TransactionRepository transactionRepository;
+    @Mock NotificationService notificationService;
     @InjectMocks HomeService service;
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
     private final LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
     @Test
-    @DisplayName("오늘 쓸 수 있는 돈은 아침 잔액 기준으로 고정하고, 오늘 쓴 돈과 계좌별 이번 달 쓴 돈을 채운다")
+    @DisplayName("오늘 쓸 수 있는 돈은 아침 잔액 기준으로 고정하고, 오늘 쓴 돈과 계좌별 이번 달 쓴 돈, 읽지 않은 알림 수를 채운다")
     void dailyGuideAndMonthSpent() {
         ReflectionTestUtils.setField(user, "id", USER_ID);
         LinkedAccount bank = LinkedAccount.builder().user(user).institutionCode("0004").type(LinkedAccountType.BANK)
@@ -68,6 +70,7 @@ class HomeServiceTest {
         when(transactionRepository.sumBlockSpent(eq(10L), any(), any())).thenReturn(new BlockSpent(12_300L, 12_300L));
         when(transactionRepository.sumTotals(eq(USER_ID), any(), any(), eq(3L), isNull()))
                 .thenReturn(new TransactionTotals(115_900L, 0L, 0L, 0L));
+        when(notificationService.countUnread(USER_ID)).thenReturn(3L);
 
         HomeResponse response = service.getHome(USER_ID);
 
@@ -77,5 +80,6 @@ class HomeServiceTest {
         assertThat(response.dailyGuide().todayRemaining()).isEqualTo(87_700L);
         assertThat(response.dailyGuide().blockBalance()).isEqualTo(87_700L);
         assertThat(response.accounts().getFirst().monthSpent()).isEqualTo(115_900L);
+        assertThat(response.unreadNotificationCount()).isEqualTo(3);
     }
 }
