@@ -44,6 +44,11 @@ ai:
   # 없으면 헤더 없이 보내고 AI 서버가 401을 준다 (초불이는 고정 문장으로 답함)
   internal-token: ${FINTRIS_INTERNAL_TOKEN:}
 
+# 앱 푸시 (Expo). 토큰은 Expo 푸시 보안을 켰을 때만 넣는다
+expo:
+  push-url: ${EXPO_PUSH_URL:https://exp.host/--/api/v2/push/send}
+  access-token: ${EXPO_ACCESS_TOKEN:}
+
 sync:
   scheduler:
     enabled: ${SYNC_SCHEDULER_ENABLED:true}
