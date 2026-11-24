@@ -5,12 +5,15 @@ import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.category.repository.CategoryRepository;
 import com.dothis.fintris.contextquestion.code.ContextQuestionErrorCode;
 import com.dothis.fintris.contextquestion.dto.ContextAnswerResponse;
+import com.dothis.fintris.contextquestion.dto.ContextAnswerResponse.SuggestRule;
 import com.dothis.fintris.contextquestion.dto.ContextQuestionResponse;
 import com.dothis.fintris.contextquestion.dto.ContextQuestionResponse.Option;
 import com.dothis.fintris.contextquestion.entity.ContextQuestion;
 import com.dothis.fintris.contextquestion.entity.QuestionStatus;
 import com.dothis.fintris.contextquestion.entity.QuestionType;
+import com.dothis.fintris.contextquestion.entity.RuleMatch;
 import com.dothis.fintris.contextquestion.repository.ContextQuestionRepository;
+import com.dothis.fintris.contextquestion.repository.ContextRuleRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.dto.TransactionResponse;
 import com.dothis.fintris.transaction.entity.Transaction;
@@ -35,6 +38,7 @@ public class ContextQuestionService {
     private static final String FREE_TEXT_NOTICE = "적은 내용은 분류에만 쓰고 저장하지 않아요";
 
     private final ContextQuestionRepository contextQuestionRepository;
+    private final ContextRuleRepository contextRuleRepository;
     private final CategoryRepository categoryRepository;
     private final BlockReflector blockReflector;
 
@@ -72,6 +76,7 @@ public class ContextQuestionService {
 
         Transaction transaction = question.getTransaction();
         String resultText;
+        String answerLabel = tag;
         if (question.getType() == QuestionType.LATE_NIGHT_FOOD) {
             transaction.tagContext(tag);
             resultText = ContextQuestionText.CONTEXT_SAVED;
@@ -84,9 +89,28 @@ public class ContextQuestionService {
             transaction.confirmReview();
             blockReflector.reconcile(transaction, blockReflector.blocksConfirmedAt(userId).orElse(null));
             resultText = ContextQuestionText.categoryChanged(category.getName(), before, transaction.getBlock());
+            answerLabel = category.getName();
         }
         question.answer(tag, LocalDateTime.now(KST));
-        return new ContextAnswerResponse(question.getId(), tag, resultText, TransactionResponse.from(transaction));
+        return new ContextAnswerResponse(question.getId(), tag, resultText, TransactionResponse.from(transaction),
+                suggestRule(userId, question, answerLabel));
+    }
+
+    // 같은 가맹점·시간대(개인 송금은 받는 사람)에 같은 답이 2번째면 규칙 저장을 권한다. 이미 규칙이 있으면 묻지 않는다
+    private SuggestRule suggestRule(Long userId, ContextQuestion question, String answerLabel) {
+        RuleMatch match = RuleMatch.of(question.getType(), question.getTransaction());
+        if (match == null) {
+            return null;
+        }
+        boolean hasRule = contextRuleRepository.findAllByUser_IdAndQuestionType(userId, question.getType()).stream()
+                .anyMatch(rule -> match.equals(rule.getMatch()));
+        if (hasRule) {
+            return null;
+        }
+        boolean answeredBefore = contextQuestionRepository.findAllByUser_IdAndTypeAndAnswerTagAndIdNot(
+                        userId, question.getType(), question.getAnswerTag(), question.getId()).stream()
+                .anyMatch(previous -> match.equals(RuleMatch.of(previous.getType(), previous.getTransaction())));
+        return answeredBefore ? new SuggestRule(ContextQuestionText.suggestRule(match, answerLabel)) : null;
     }
 
     private ContextQuestionResponse toResponse(ContextQuestion question, Map<String, String> categoryNames,

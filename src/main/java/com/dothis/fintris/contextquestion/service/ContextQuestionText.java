@@ -4,6 +4,7 @@ import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.SupportedInstitution;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.contextquestion.entity.QuestionType;
+import com.dothis.fintris.contextquestion.entity.RuleMatch;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionSource;
 
@@ -67,6 +68,21 @@ public final class ContextQuestionText {
             return to + " 바꾸고 " + after.getName() + " 블록에 그대로 둬요";
         }
         return to + " 바꾸고 " + after.getName() + " 블록으로 옮겼어요";
+    }
+
+    // 예: "지난번에도 이 시간대 네이버페이를 생활/생필품으로 답했어요. 다음부터 묻지 않고 자동으로 적용할까요?"
+    public static String suggestRule(RuleMatch match, String answerLabel) {
+        String target = match.payee() != null
+                ? match.payee() + "에게 보낸 돈을"
+                : "이 시간대 " + match.merchant() + (hasBatchim(match.merchant()) ? "을" : "를");
+        return "지난번에도 %s %s%s 답했어요. 다음부터 묻지 않고 자동으로 적용할까요?"
+                .formatted(target, answerLabel, needsEuro(answerLabel) ? "으로" : "로");
+    }
+
+    // 한글로 끝나지 않으면(예: "GS25") 받침이 없다고 본다
+    private static boolean hasBatchim(String word) {
+        char last = word.charAt(word.length() - 1);
+        return last >= '가' && last <= '힣' && (last - '가') % 28 != 0;
     }
 
     // 받침이 있으면 "으로", 없거나 ㄹ이면 "로" (예: "교통으로", "기타로", "카페/간식으로")

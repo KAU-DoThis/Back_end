@@ -1,8 +1,10 @@
 package com.dothis.fintris.contextquestion.service;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.analysis.service.TimeSlot;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.contextquestion.entity.QuestionType;
+import com.dothis.fintris.contextquestion.entity.RuleMatch;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionSource;
 import org.junit.jupiter.api.DisplayName;
@@ -114,5 +116,16 @@ class ContextQuestionTextTest {
         assertThat(ContextQuestionText.categoryChanged("문화/여가", null, null)).isEqualTo("문화/여가로 바꿨어요");
         assertThat(ContextQuestionText.categoryChanged("의료/건강", null, null)).isEqualTo("의료/건강으로 바꿨어요");
         assertThat(ContextQuestionText.categoryChanged("지하철", null, null)).isEqualTo("지하철로 바꿨어요");
+    }
+
+    @Test
+    @DisplayName("규칙 권유: 가맹점은 '이 시간대 ...을/를', 개인 송금은 '...에게 보낸 돈을'로 말한다")
+    void suggestRule() {
+        assertThat(ContextQuestionText.suggestRule(new RuleMatch("네이버페이", TimeSlot.EVENING, null), "생활/생필품"))
+                .isEqualTo("지난번에도 이 시간대 네이버페이를 생활/생필품으로 답했어요. 다음부터 묻지 않고 자동으로 적용할까요?");
+        assertThat(ContextQuestionText.suggestRule(new RuleMatch("쿠팡", TimeSlot.LUNCH, null), "기타"))
+                .isEqualTo("지난번에도 이 시간대 쿠팡을 기타로 답했어요. 다음부터 묻지 않고 자동으로 적용할까요?");
+        assertThat(ContextQuestionText.suggestRule(new RuleMatch(null, null, "김*수"), "더치페이"))
+                .isEqualTo("지난번에도 김*수에게 보낸 돈을 더치페이로 답했어요. 다음부터 묻지 않고 자동으로 적용할까요?");
     }
 }

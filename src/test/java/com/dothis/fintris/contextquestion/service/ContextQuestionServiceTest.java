@@ -8,7 +8,10 @@ import com.dothis.fintris.contextquestion.dto.ContextAnswerResponse;
 import com.dothis.fintris.contextquestion.entity.ContextQuestion;
 import com.dothis.fintris.contextquestion.entity.QuestionStatus;
 import com.dothis.fintris.contextquestion.entity.QuestionType;
+import com.dothis.fintris.contextquestion.entity.ContextRule;
+import com.dothis.fintris.contextquestion.entity.RuleMatch;
 import com.dothis.fintris.contextquestion.repository.ContextQuestionRepository;
+import com.dothis.fintris.contextquestion.repository.ContextRuleRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.entity.ClassifiedBy;
 import com.dothis.fintris.transaction.entity.Transaction;
@@ -44,6 +47,7 @@ class ContextQuestionServiceTest {
     private static final Long QUESTION_ID = 56L;
 
     @Mock ContextQuestionRepository contextQuestionRepository;
+    @Mock ContextRuleRepository contextRuleRepository;
     @Mock CategoryRepository categoryRepository;
     @Mock BlockReflector blockReflector;
     @InjectMocks ContextQuestionService service;
@@ -104,7 +108,57 @@ class ContextQuestionServiceTest {
         assertThat(question.getStatus()).isEqualTo(QuestionStatus.ANSWERED);
         assertThat(question.getAnswerTag()).isEqualTo("LIVING");
         assertThat(response.resultText()).isEqualTo("생활/생필품으로 바꿨어요");
+        assertThat(response.suggestRule()).isNull();
         verify(blockReflector).reconcile(transaction, null);
+    }
+
+    private ContextQuestion answeredBefore(QuestionType type, String tag, LocalDateTime occurredAt) {
+        Transaction transaction = Transaction.builder().user(user(USER_ID)).occurredAt(occurredAt).amount(18_000L)
+                .direction(TransactionDirection.OUT).merchantOrPayee("배달의민족")
+                .source(TransactionSource.CODEF).status(TransactionStatus.CONFIRMED).build();
+        ContextQuestion question = ContextQuestion.builder().user(user(USER_ID)).transaction(transaction)
+                .type(type).options(List.of(tag)).build();
+        question.answer(tag, occurredAt.plusHours(1));
+        return question;
+    }
+
+    @Test
+    @DisplayName("같은 가맹점·시간대에 같은 답이 두 번째면 규칙 저장을 권한다")
+    void suggestRuleOnSecondSameAnswer() {
+        given(USER_ID, QuestionType.LATE_NIGHT_FOOD, List.of("야근", "약속", "그냥"), transaction(TransactionStatus.CONFIRMED));
+        when(contextQuestionRepository.findAllByUser_IdAndTypeAndAnswerTagAndIdNot(
+                USER_ID, QuestionType.LATE_NIGHT_FOOD, "야근", QUESTION_ID))
+                .thenReturn(List.of(answeredBefore(QuestionType.LATE_NIGHT_FOOD, "야근", LocalDateTime.of(2026, 10, 6, 22, 40))));
+
+        ContextAnswerResponse response = service.answer(USER_ID, QUESTION_ID, "야근");
+
+        assertThat(response.suggestRule().message())
+                .isEqualTo("지난번에도 이 시간대 배달의민족을 야근으로 답했어요. 다음부터 묻지 않고 자동으로 적용할까요?");
+    }
+
+    @Test
+    @DisplayName("전에 같은 답을 했어도 시간대가 다르면 권하지 않는다")
+    void noSuggestRuleOnDifferentTimeSlot() {
+        given(USER_ID, QuestionType.LATE_NIGHT_FOOD, List.of("야근"), transaction(TransactionStatus.CONFIRMED));
+        when(contextQuestionRepository.findAllByUser_IdAndTypeAndAnswerTagAndIdNot(
+                USER_ID, QuestionType.LATE_NIGHT_FOOD, "야근", QUESTION_ID))
+                .thenReturn(List.of(answeredBefore(QuestionType.LATE_NIGHT_FOOD, "야근", LocalDateTime.of(2026, 10, 6, 12, 0))));
+
+        assertThat(service.answer(USER_ID, QUESTION_ID, "야근").suggestRule()).isNull();
+    }
+
+    @Test
+    @DisplayName("이미 같은 규칙이 있으면 다시 권하지 않는다")
+    void noSuggestRuleWhenRuleExists() {
+        Transaction transaction = transaction(TransactionStatus.CONFIRMED);
+        given(USER_ID, QuestionType.LATE_NIGHT_FOOD, List.of("야근"), transaction);
+        ContextRule rule = ContextRule.builder().user(user(USER_ID)).questionType(QuestionType.LATE_NIGHT_FOOD)
+                .match(RuleMatch.of(QuestionType.LATE_NIGHT_FOOD, transaction)).tag("야근").build();
+        when(contextRuleRepository.findAllByUser_IdAndQuestionType(USER_ID, QuestionType.LATE_NIGHT_FOOD))
+                .thenReturn(List.of(rule));
+
+        assertThat(service.answer(USER_ID, QUESTION_ID, "야근").suggestRule()).isNull();
+        verify(contextQuestionRepository, never()).findAllByUser_IdAndTypeAndAnswerTagAndIdNot(any(), any(), any(), any());
     }
 
     @Test
