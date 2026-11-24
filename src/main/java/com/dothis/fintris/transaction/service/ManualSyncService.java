@@ -2,6 +2,7 @@ package com.dothis.fintris.transaction.service;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
+import com.dothis.fintris.notification.service.BurnRateDetector;
 import com.dothis.fintris.transaction.dto.SyncStartResponse;
 import com.dothis.fintris.transaction.dto.SyncStatus;
 import com.dothis.fintris.transaction.dto.SyncStatusResponse;
@@ -30,15 +31,18 @@ public class ManualSyncService {
     private final TransactionSyncService transactionSyncService;
     private final SyncStateRegistry registry;
     private final TaskExecutor executor;
+    private final BurnRateDetector burnRateDetector;
 
     public ManualSyncService(LinkedAccountRepository linkedAccountRepository,
                              TransactionSyncService transactionSyncService,
                              SyncStateRegistry registry,
-                             @Qualifier("applicationTaskExecutor") TaskExecutor executor) {
+                             @Qualifier("applicationTaskExecutor") TaskExecutor executor,
+                             BurnRateDetector burnRateDetector) {
         this.linkedAccountRepository = linkedAccountRepository;
         this.transactionSyncService = transactionSyncService;
         this.registry = registry;
         this.executor = executor;
+        this.burnRateDetector = burnRateDetector;
     }
 
     public SyncStartResponse start(Long userId) {
@@ -78,6 +82,12 @@ public class ManualSyncService {
         } catch (RuntimeException e) {
             log.warn("수동 동기화 중 예외가 발생했습니다.");
             registry.fail(userId);
+        }
+        // 새로 반영된 거래로 이상 징후를 본다. 감지가 실패해도 동기화 결과는 그대로 둔다 (F-09)
+        try {
+            burnRateDetector.detect(userId);
+        } catch (RuntimeException e) {
+            log.warn("소진 속도 감지 중 예외가 발생했습니다.");
         }
     }
 

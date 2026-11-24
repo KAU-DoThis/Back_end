@@ -3,6 +3,7 @@ package com.dothis.fintris.transaction.service;
 import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.entity.LinkedAccountType;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
+import com.dothis.fintris.notification.service.BurnRateDetector;
 import com.dothis.fintris.transaction.dto.SyncStartResponse;
 import com.dothis.fintris.transaction.dto.SyncStatus;
 import com.dothis.fintris.transaction.dto.SyncStatusResponse;
@@ -23,6 +24,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,6 +37,7 @@ class ManualSyncServiceTest {
 
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock TransactionSyncService transactionSyncService;
+    @Mock BurnRateDetector burnRateDetector;
 
     private final SyncStateRegistry registry = new SyncStateRegistry();
     private final List<Runnable> queued = new ArrayList<>();
@@ -45,7 +48,8 @@ class ManualSyncServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ManualSyncService(linkedAccountRepository, transactionSyncService, registry, queueingExecutor);
+        service = new ManualSyncService(linkedAccountRepository, transactionSyncService, registry, queueingExecutor,
+                burnRateDetector);
     }
 
     private LinkedAccount bank(LocalDateTime lastSyncedAt) {
@@ -144,7 +148,7 @@ class ManualSyncServiceTest {
         givenAccounts(bank(null));
         RuntimeException rejected = new java.util.concurrent.RejectedExecutionException("full");
         service = new ManualSyncService(linkedAccountRepository, transactionSyncService, registry,
-                task -> { throw rejected; });
+                task -> { throw rejected; }, burnRateDetector);
 
         assertThatThrownBy(() -> service.start(USER_ID)).isSameAs(rejected);
         assertThat(registry.get(USER_ID).status()).isEqualTo(SyncStatus.FAILED);
@@ -182,5 +186,17 @@ class ManualSyncServiceTest {
         service.runScheduled(USER_ID);
 
         verify(transactionSyncService, never()).syncUser(USER_ID);
+    }
+
+    @Test
+    @DisplayName("동기화가 끝나면 실패해도 소진 속도를 감지하고, 감지가 실패해도 동기화 상태는 그대로 둔다")
+    void detectsBurnRateAfterSync() {
+        when(transactionSyncService.syncUser(USER_ID)).thenThrow(new IllegalStateException("codef"));
+        doThrow(new IllegalStateException("detect")).when(burnRateDetector).detect(USER_ID);
+
+        service.runScheduled(USER_ID);
+
+        verify(burnRateDetector).detect(USER_ID);
+        assertThat(registry.get(USER_ID).status()).isEqualTo(SyncStatus.FAILED);
     }
 }
