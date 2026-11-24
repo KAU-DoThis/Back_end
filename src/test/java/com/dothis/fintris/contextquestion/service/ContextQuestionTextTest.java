@@ -1,11 +1,13 @@
 package com.dothis.fintris.contextquestion.service;
 
 import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.contextquestion.entity.QuestionType;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -77,5 +79,40 @@ class ContextQuestionTextTest {
         Transaction transaction = transaction("붕어빵", 3000, YESTERDAY_EVENING).build();
 
         assertThat(ContextQuestionText.meta(transaction)).isEqualTo("10월 13일 화 19:22");
+    }
+
+    private Block block(long id, String name) {
+        Block block = Block.builder().name(name).build();
+        ReflectionTestUtils.setField(block, "id", id);
+        return block;
+    }
+
+    @Test
+    @DisplayName("반영 블록이 그대로면 '그대로 둬요'라고 말한다")
+    void categoryChangedSameBlock() {
+        assertThat(ContextQuestionText.categoryChanged("생활/생필품", block(1, "생활비"), block(1, "생활비")))
+                .isEqualTo("생활/생필품으로 바꾸고 생활비 블록에 그대로 둬요");
+    }
+
+    @Test
+    @DisplayName("다른 블록으로 옮겨졌으면 옮겼다고 말한다")
+    void categoryChangedMovedBlock() {
+        assertThat(ContextQuestionText.categoryChanged("교통", block(1, "생활비"), block(2, "교통비")))
+                .isEqualTo("교통으로 바꾸고 교통비 블록으로 옮겼어요");
+    }
+
+    @Test
+    @DisplayName("블록에서 빠졌으면 뺀 돈을 돌려놨다고 말한다")
+    void categoryChangedReleasedBlock() {
+        assertThat(ContextQuestionText.categoryChanged("더치페이", block(1, "생활비"), null))
+                .isEqualTo("더치페이로 바꾸고 생활비 블록에서 뺀 돈은 돌려놨어요");
+    }
+
+    @Test
+    @DisplayName("블록과 상관없는 거래는 바꾼 카테고리만 말하고, 받침 ㄹ 뒤에는 '로'를 쓴다")
+    void categoryChangedNoBlock() {
+        assertThat(ContextQuestionText.categoryChanged("문화/여가", null, null)).isEqualTo("문화/여가로 바꿨어요");
+        assertThat(ContextQuestionText.categoryChanged("의료/건강", null, null)).isEqualTo("의료/건강으로 바꿨어요");
+        assertThat(ContextQuestionText.categoryChanged("지하철", null, null)).isEqualTo("지하철로 바꿨어요");
     }
 }
