@@ -353,21 +353,44 @@ CREATE TABLE context_questions (
 -- 8. 알림 (F-09, F-10, F-22, F-25)
 -- ---------------------------------------------------------------------
 
+-- 알림 설정 (v4 9장 14 화면). 사용자당 한 행, 없으면 기본값으로 본다
+-- 받는 시간 기본값은 기능명세서 F-22(07~23시)를 따른다 (v4 13장 TBD)
 CREATE TABLE notification_settings (
-    notification_setting_id BIGINT      NOT NULL AUTO_INCREMENT,
-    user_id                 BIGINT      NOT NULL,
-    type                    VARCHAR(30) NOT NULL COMMENT 'CONTEXT / DAILY_GUIDE / ANOMALY / REPORT / PRODUCT',
-    enabled                 TINYINT(1)  NOT NULL DEFAULT 1,
-    quiet_start             TIME        NOT NULL DEFAULT '23:00:00',
-    quiet_end               TIME        NOT NULL DEFAULT '07:00:00',
-    daily_max               TINYINT     NOT NULL DEFAULT 5,
-    lock_screen_hide        TINYINT(1)  NOT NULL DEFAULT 0,
-    guide_time              TIME        NOT NULL DEFAULT '08:00:00',
-    created_at              DATETIME(6) NOT NULL,
-    updated_at              DATETIME(6) NOT NULL,
+    notification_setting_id       BIGINT      NOT NULL AUTO_INCREMENT,
+    user_id                       BIGINT      NOT NULL,
+    push_enabled                  TINYINT(1)  NOT NULL DEFAULT 1,
+    context_enabled               TINYINT(1)  NOT NULL DEFAULT 1,
+    context_frequency             VARCHAR(20) NOT NULL DEFAULT 'MAX_3_PER_DAY' COMMENT 'EACH_SYNC / MAX_3_PER_DAY / DAILY_DIGEST',
+    quiet_start                   TIME        NOT NULL DEFAULT '23:00:00',
+    quiet_end                     TIME        NOT NULL DEFAULT '07:00:00',
+    burn_rate_enabled             TINYINT(1)  NOT NULL DEFAULT 1,
+    fixed_shortage_enabled        TINYINT(1)  NOT NULL DEFAULT 1 COMMENT '긴급. 끌 때 한 번 확인받는다',
+    goal_behind_enabled           TINYINT(1)  NOT NULL DEFAULT 1,
+    saving_report_enabled         TINYINT(1)  NOT NULL DEFAULT 1,
+    marketing_enabled             TINYINT(1)  NOT NULL DEFAULT 0 COMMENT 'MARKETING 동의가 있어야 켤 수 있다',
+    daily_guide_time              TIME        NOT NULL DEFAULT '08:00:00',
+    lock_screen_hide_amount       TINYINT(1)  NOT NULL DEFAULT 0,
+    urgent_off_confirmed          TINYINT(1)  NOT NULL DEFAULT 0,
+    created_at                    DATETIME(6) NOT NULL,
+    updated_at                    DATETIME(6) NOT NULL,
     PRIMARY KEY (notification_setting_id),
-    UNIQUE KEY uk_notification_settings_user_type (user_id, type),
+    UNIQUE KEY uk_notification_settings_user (user_id),
     CONSTRAINT fk_notification_settings_user FOREIGN KEY (user_id) REFERENCES users (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 알림함 (v4 9장). 30일이 지나면 지운다. 분류(경고·질문·소식)와 긴급 여부는 type으로 정한다
+CREATE TABLE notifications (
+    notification_id     BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id             BIGINT       NOT NULL,
+    type                VARCHAR(30)  NOT NULL COMMENT 'CONTEXT_QUESTION / BURN_RATE / GOAL_ACHIEVED / REPORT 등 (v4 9장)',
+    title               VARCHAR(255) NOT NULL,
+    body                VARCHAR(500) NULL,
+    ref_id              BIGINT       NULL COMMENT '눌렀을 때 열 대상 ID (질문이면 context_question_id)',
+    read_at             DATETIME(6)  NULL,
+    created_at          DATETIME(6)  NOT NULL,
+    PRIMARY KEY (notification_id),
+    KEY idx_notifications_user_created (user_id, created_at),
+    CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE notification_logs (
