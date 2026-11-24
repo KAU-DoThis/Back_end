@@ -44,7 +44,7 @@ class RecurringPaymentDetectorTest {
                 out("김*수", 8, 25, 600_000), out("김*수", 9, 25, 600_000), out("김*수", 10, 25, 600_000)));
 
         assertThat(found).containsExactly(new RecurringPayment("김*수", 25, 600_000, 600_000, 600_000, 3,
-                LocalDate.of(2026, 10, 25), 3L));
+                LocalDate.of(2026, 10, 25), 3L, null));
     }
 
     @Test
