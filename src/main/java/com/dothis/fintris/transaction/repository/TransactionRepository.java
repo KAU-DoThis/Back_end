@@ -105,6 +105,17 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
                                 @Param("from") LocalDateTime from, @Param("to") LocalDateTime to,
                                 @Param("linkedAccountId") Long linkedAccountId, @Param("blockId") Long blockId);
 
+    // 소진 속도 경고 상세: 이 블록에 반영된 거래의 카테고리별 합
+    @Query("""
+            select new com.dothis.fintris.transaction.repository.CategorySpent(
+              c.id, c.code, c.name, count(t), coalesce(sum(t.amount), 0))
+            from Transaction t left join t.category c
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            group by c.id, c.code, c.name
+            """)
+    List<CategorySpent> sumBlockSpentByCategory(@Param("blockId") Long blockId,
+                                                @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
     // 소비 분석(F-01) 카테고리별 쓴 돈. 거래 목록의 쓴 돈과 같은 조건이라 합이 목록 합계와 맞는다
     @Query("""
             select new com.dothis.fintris.transaction.repository.CategorySpent(
