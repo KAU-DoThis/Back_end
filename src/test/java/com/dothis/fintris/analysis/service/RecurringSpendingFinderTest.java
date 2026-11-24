@@ -161,4 +161,18 @@ class RecurringSpendingFinderTest {
                 .containsExactly(new Recurring("FIXED", "SKT", "매월 15일", 55_000));
         assertThat(finder.find(notYet, PERIOD_FROM)).isEmpty();
     }
+
+    @Test
+    @DisplayName("고정지출의 가장 최근 결제가 더치페이면 내 몫을 보여준다")
+    void fixedUsesMyShare() {
+        List<Transaction> history = new ArrayList<>();
+        for (int month = 8; month <= 10; month++) {
+            Transaction netflix = spent(SUBSCRIPTION, "넷플릭스", month, 15, 17_000);
+            ReflectionTestUtils.setField(netflix, "id", (long) month);
+            history.add(netflix);
+        }
+
+        assertThat(finder.find(history, PERIOD_FROM, Map.of(10L, 4_250L)))
+                .containsExactly(new Recurring("FIXED", "넷플릭스", "매월 15일", 4_250));
+    }
 }
