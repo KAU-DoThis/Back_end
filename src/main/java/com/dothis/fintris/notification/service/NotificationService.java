@@ -11,6 +11,7 @@ import com.dothis.fintris.notification.entity.NotificationType;
 import com.dothis.fintris.notification.repository.NotificationRepository;
 import com.dothis.fintris.user.entity.User;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
@@ -38,12 +39,18 @@ public class NotificationService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final NotificationRepository notificationRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    // 다른 기능이 알림을 남길 때 부른다. 알림함에 쌓기만 하고 푸시 발송은 따로 한다
+    // 다른 기능이 알림을 남길 때 부른다. 알림함에 쌓고, 푸시는 저장이 확정된 뒤 PushDispatcher가 보낸다
     @Transactional
     public Notification notify(User user, NotificationType type, String title, String body, Long refId) {
-        return notificationRepository.save(Notification.builder()
+        Notification notification = notificationRepository.save(Notification.builder()
                 .user(user).type(type).title(title).body(body).refId(refId).build());
+        eventPublisher.publishEvent(new NotificationCreated(notification.getId()));
+        return notification;
+    }
+
+    public record NotificationCreated(Long notificationId) {
     }
 
     public NotificationListResponse getNotifications(Long userId, NotificationCategory category, int page, int size) {
