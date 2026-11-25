@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,7 +50,9 @@ public class DutchPayRecalculator {
     // 취소된 거래는 0원으로 본다
     public void recalculate(List<DutchPayTransaction> links) {
         DutchPay dutchPay = links.getFirst().getDutchPay();
-        List<DutchPayTransaction> payments = links.stream().filter(DutchPayRecalculator::isPayment).toList();
+        // 금액이 같은 결제끼리 남는 1원이 조회 순서에 따라 옮겨 다니지 않게 거래 ID 순으로 둔다
+        List<DutchPayTransaction> payments = links.stream().filter(DutchPayRecalculator::isPayment)
+                .sorted(Comparator.comparing(link -> link.getTransaction().getId())).toList();
         List<Long> paid = payments.stream().map(link -> effectiveAmount(link.getTransaction())).toList();
         long paidTotal = paid.stream().mapToLong(Long::longValue).sum();
         long receivedTotal = links.stream().filter(link -> !isPayment(link))

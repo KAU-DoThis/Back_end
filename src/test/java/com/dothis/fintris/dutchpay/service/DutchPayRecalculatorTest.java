@@ -88,6 +88,24 @@ class DutchPayRecalculatorTest {
     }
 
     @Test
+    @DisplayName("금액이 같은 결제끼리는 조회 순서가 바뀌어도 남는 1원이 같은 결제에 붙는다")
+    void stableOrderForTies() {
+        Transaction first = transaction(3L, 10_000L, TransactionDirection.OUT, living);
+        Transaction second = transaction(4L, 10_000L, TransactionDirection.OUT, travel);
+        DutchPayTransaction firstLink = DutchPayTransaction.builder().dutchPay(dutchPay).transaction(first).build();
+        DutchPayTransaction secondLink = DutchPayTransaction.builder().dutchPay(dutchPay).transaction(second).build();
+        DutchPayTransaction received = DutchPayTransaction.builder().dutchPay(dutchPay)
+                .transaction(transaction(5L, 5_001L, TransactionDirection.IN, null)).build();
+
+        recalculator.recalculate(List.of(firstLink, secondLink, received));
+        long firstShare = firstLink.getMyShare();
+        recalculator.recalculate(List.of(secondLink, firstLink, received));
+
+        assertThat(firstLink.getMyShare()).isEqualTo(firstShare);
+        assertThat(firstLink.getMyShare() + secondLink.getMyShare()).isEqualTo(14_999L);
+    }
+
+    @Test
     @DisplayName("결제의 블록이 바뀌면(카테고리 수정) 돌려놓은 돈도 새 블록으로 옮긴다")
     void blockMoved() {
         food.reflectTo(travel, 30_000L);
