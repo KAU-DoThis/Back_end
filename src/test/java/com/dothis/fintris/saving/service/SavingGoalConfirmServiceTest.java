@@ -76,7 +76,8 @@ class SavingGoalConfirmServiceTest {
         SavingGoal goal = SavingGoal.builder().user(user).category(category).baseAmount(base).targetAmount(base / 2)
                 .startDate(START).endDate(END).build();
         ReflectionTestUtils.setField(goal, "id", id);
-        when(savingGoalService.spent(USER_ID, categoryId, START, END.plusDays(1))).thenReturn(actual);
+        when(savingGoalService.spent(USER_ID, categoryId, START, END.plusDays(1)))
+                .thenReturn(new SpentStats(actual, 5));
         return goal;
     }
 
@@ -103,6 +104,7 @@ class SavingGoalConfirmServiceTest {
 
         assertThat(delivery.getStatus()).isEqualTo(SavingGoalStatus.CONFIRMED);
         assertThat(delivery.getActualAmount()).isEqualTo(80_000);
+        assertThat(delivery.getActualCount()).isEqualTo(5);
         assertThat(delivery.getConfirmedSaving()).isEqualTo(52_000);
         assertThat(delivery.getWaitingFundId()).isEqualTo(12L);
     }

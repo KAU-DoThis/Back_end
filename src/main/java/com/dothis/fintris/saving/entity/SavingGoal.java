@@ -46,10 +46,15 @@ public class SavingGoal extends BaseEntity {
     private Category category;
 
     @Column(nullable = false)
-    private long baseAmount; // 기준 지출액 = 직전 3개월 평균 (서버 계산)
+    private long baseAmount; // 기준 지출액 = 지난달 지출 (서버 계산)
 
     @Column(nullable = false)
-    private long targetAmount; // 목표 지출액
+    private int baseCount; // 기준 횟수 = 지난달 결제 건수
+
+    @Column(nullable = false)
+    private long targetAmount; // 목표 지출액. 횟수로 정했으면 서버가 횟수로 계산한 값
+
+    private Integer targetCount; // 목표 횟수. 금액으로만 정했으면 null
 
     @Column(nullable = false)
     private LocalDate startDate;
@@ -71,6 +76,7 @@ public class SavingGoal extends BaseEntity {
     private Long suggestionId;
 
     private Long actualAmount;    // 확정 때 실제 지출액
+    private Integer actualCount;  // 확정 때 실제 결제 횟수
     private Long confirmedSaving; // 확정 절약액 = 기준 - 실제 (0 미만이면 0)
     private Long waitingFundId;   // 확정 때 만든 절약분 나눌 돈. 옮길 돈이 없었으면 null
     private LocalDateTime confirmedAt;
@@ -83,9 +89,11 @@ public class SavingGoal extends BaseEntity {
         this.status = SavingGoalStatus.CANCELED;
     }
 
-    public void confirm(long actualAmount, long confirmedSaving, Long waitingFundId, LocalDateTime now) {
+    public void confirm(long actualAmount, int actualCount, long confirmedSaving, Long waitingFundId,
+                        LocalDateTime now) {
         this.status = SavingGoalStatus.CONFIRMED;
         this.actualAmount = actualAmount;
+        this.actualCount = actualCount;
         this.confirmedSaving = confirmedSaving;
         this.waitingFundId = waitingFundId;
         this.confirmedAt = now;
