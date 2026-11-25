@@ -102,12 +102,13 @@ public record TransactionResponse(
         }
     }
 
-    // 거래 금액은 통장에 찍힌 그대로 두고, 더치페이에 묶였다는 표시만 한다
+    // 거래 금액은 통장에 찍힌 그대로 두고, 쓴 돈 합계(상단·날짜별)에 잡힌 내 몫을 같이 보여 준다
     public record DutchPayItem(
-            @Schema(example = "7") Long dutchPayId
+            @Schema(example = "7") Long dutchPayId,
+            @Schema(description = "결제 건의 내 몫(쓴 돈 합계에 잡히는 금액). 받은 돈 건은 null", example = "15000") Long myShare
     ) {
         static DutchPayItem from(DutchPayTransaction link) {
-            return link == null ? null : new DutchPayItem(link.getDutchPay().getId());
+            return link == null ? null : new DutchPayItem(link.getDutchPay().getId(), link.getMyShare());
         }
     }
 
