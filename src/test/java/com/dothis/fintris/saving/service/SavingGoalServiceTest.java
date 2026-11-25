@@ -69,7 +69,7 @@ class SavingGoalServiceTest {
         ReflectionTestUtils.setField(taxi, "id", 4L);
         lenient().when(categoryRepository.findById(4L)).thenReturn(Optional.of(taxi));
         lenient().when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-        lenient().when(savingGoalRepository.save(any(SavingGoal.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(savingGoalRepository.saveAndFlush(any(SavingGoal.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
     // 기준 3개월 동안 택시 252,000원(평균 84,000), 기간 중에는 0원
@@ -118,7 +118,7 @@ class SavingGoalServiceTest {
 
         assertError(() -> service.create(USER_ID, request(84_000, null)),
                 SavingGoalErrorCode.SAVING_GOAL_NO_EXPECTED_SAVING);
-        verify(savingGoalRepository, never()).save(any());
+        verify(savingGoalRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -139,6 +139,31 @@ class SavingGoalServiceTest {
                 .thenReturn(true);
         assertError(() -> service.create(USER_ID, request(42_000, null)),
                 SavingGoalErrorCode.SAVING_GOAL_DUPLICATE_CATEGORY);
+    }
+
+    @Test
+    @DisplayName("생성: 동시에 온 요청은 진행 중 유일 키 위반을 같은 카테고리 중복으로 바꾼다")
+    void duplicateByUniqueKey() {
+        spentInBaseMonths(252_000);
+        when(savingGoalRepository.saveAndFlush(any(SavingGoal.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("uk_active_key"));
+
+        assertError(() -> service.create(USER_ID, request(42_000, null)),
+                SavingGoalErrorCode.SAVING_GOAL_DUPLICATE_CATEGORY);
+    }
+
+    @Test
+    @DisplayName("생성: 진행 중 키를 채우고, 취소하면 비운다")
+    void activeKey() {
+        spentInBaseMonths(252_000);
+        org.mockito.ArgumentCaptor<SavingGoal> saved = org.mockito.ArgumentCaptor.forClass(SavingGoal.class);
+
+        service.create(USER_ID, request(42_000, null));
+
+        verify(savingGoalRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getActiveKey()).isEqualTo("1:4");
+        saved.getValue().cancel();
+        assertThat(saved.getValue().getActiveKey()).isNull();
     }
 
     private SavingGoal saved(Long id, SavingGoalStatus status) {
@@ -178,5 +203,15 @@ class SavingGoalServiceTest {
         assertError(() -> service.cancel(USER_ID, 9L), SavingGoalErrorCode.SAVING_GOAL_NOT_FOUND);
         assertError(() -> service.cancel(USER_ID, 10L), SavingGoalErrorCode.SAVING_GOAL_NOT_ACTIVE);
         assertError(() -> service.getGoal(2L, 10L), SavingGoalErrorCode.SAVING_GOAL_FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("취소: 같은 때 확정돼 버전이 바뀌었으면 덮어쓰지 않고 실패시킨다")
+    void cancelConflict() {
+        saved(9L, SavingGoalStatus.ACTIVE);
+        org.mockito.Mockito.doThrow(new org.springframework.orm.ObjectOptimisticLockingFailureException(
+                SavingGoal.class, 9L)).when(savingGoalRepository).flush();
+
+        assertError(() -> service.cancel(USER_ID, 9L), SavingGoalErrorCode.SAVING_GOAL_NOT_ACTIVE);
     }
 }

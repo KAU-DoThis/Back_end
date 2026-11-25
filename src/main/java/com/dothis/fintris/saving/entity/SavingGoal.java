@@ -15,6 +15,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -75,16 +76,39 @@ public class SavingGoal extends BaseEntity {
     private Long waitingFundId;   // 확정 때 만든 절약분 나눌 돈. 옮길 돈이 없었으면 null
     private LocalDateTime confirmedAt;
 
+    // 진행 중일 때만 "사용자ID:카테고리ID"를 넣고 끝나면 비운다. 유일 키라서 같은 카테고리에 진행 중 목표가
+    // 동시에 두 개 만들어지는 것을 DB가 막는다 (MySQL 유일 키는 NULL끼리 겹쳐도 된다)
+    @Column(unique = true, length = 50)
+    private String activeKey;
+
+    // 확정(스케줄러)과 취소(사용자)가 같은 목표를 동시에 바꾸면 나중 쪽을 실패시킨다
+    @Version
+    private Long version;
+
+    public static String activeKeyOf(Long userId, Long categoryId) {
+        return userId + ":" + categoryId;
+    }
+
     public boolean isOwnedBy(Long userId) {
         return user.getId().equals(userId);
     }
 
     public void cancel() {
+        requireActive();
         this.status = SavingGoalStatus.CANCELED;
+        this.activeKey = null;
+    }
+
+    private void requireActive() {
+        if (status != SavingGoalStatus.ACTIVE) {
+            throw new IllegalStateException("진행 중인 절약 목표만 바꿀 수 있습니다.");
+        }
     }
 
     public void confirm(long actualAmount, long confirmedSaving, Long waitingFundId, LocalDateTime now) {
+        requireActive();
         this.status = SavingGoalStatus.CONFIRMED;
+        this.activeKey = null;
         this.actualAmount = actualAmount;
         this.confirmedSaving = confirmedSaving;
         this.waitingFundId = waitingFundId;

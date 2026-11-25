@@ -21,6 +21,8 @@ import com.dothis.fintris.user.repository.UserRepository;
 import com.dothis.fintris.waitingfund.entity.WaitingFund;
 import com.dothis.fintris.waitingfund.repository.WaitingFundRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,16 +82,23 @@ public class SavingGoalService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> GeneralException.of(UserErrorCode.USER_NOT_FOUND));
         // TODO: 절약 후보 테이블이 생기면 suggestionId의 후보를 "목표로 설정함"으로 바꾼다 (김지현 F-02)
-        SavingGoal goal = savingGoalRepository.save(SavingGoal.builder()
+        SavingGoal goal = SavingGoal.builder()
                 .user(user)
                 .category(category)
+                .activeKey(SavingGoal.activeKeyOf(userId, category.getId()))
                 .baseAmount(baseAmount)
                 .targetAmount(request.targetAmount())
                 .startDate(startDate)
                 .endDate(endDate)
                 .linkedBlock(linkedBlock)
                 .suggestionId(request.suggestionId())
-                .build());
+                .build();
+        // 위의 중복 검사는 순서대로 온 요청만 막는다. 동시에 온 요청(더블 클릭·재시도)은 유일 키가 막는다
+        try {
+            savingGoalRepository.saveAndFlush(goal);
+        } catch (DataIntegrityViolationException e) {
+            throw GeneralException.of(SavingGoalErrorCode.SAVING_GOAL_DUPLICATE_CATEGORY);
+        }
         return SavingGoalResponse.of(goal, spentSoFar(goal, today), SavingGoalStatus.ACTIVE);
     }
 
@@ -121,6 +130,12 @@ public class SavingGoalService {
             throw GeneralException.of(SavingGoalErrorCode.SAVING_GOAL_NOT_ACTIVE);
         }
         goal.cancel();
+        // 같은 때 스케줄러가 확정했으면 취소가 확정 결과를 덮어쓰지 않게 실패시킨다
+        try {
+            savingGoalRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw GeneralException.of(SavingGoalErrorCode.SAVING_GOAL_NOT_ACTIVE);
+        }
         return toResponse(goal);
     }
 
