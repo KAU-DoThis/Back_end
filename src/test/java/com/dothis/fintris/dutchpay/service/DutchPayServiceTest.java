@@ -237,6 +237,17 @@ class DutchPayServiceTest {
     }
 
     @Test
+    @DisplayName("소비에서 뺀 출금은 결제로 고를 수 없다")
+    void paymentMustNotBeExcluded() {
+        Transaction duplicate = transaction(1L, user, 30_000L, TransactionDirection.OUT, null);
+        duplicate.excludeFromSpending();
+        when(transactionRepository.findAllById(List.of(1L))).thenReturn(List.of(duplicate));
+
+        assertThatThrownBy(() -> service.create(USER_ID, request(List.of(1L), List.of())))
+                .extracting(DutchPayServiceTest::codeOf).isEqualTo(DutchPayErrorCode.DUTCH_PAY_EXCLUDED_PAYMENT);
+    }
+
+    @Test
     @DisplayName("받은 돈 자리에 출금을 고르면 막는다")
     void receivedMustBeIncoming() {
         Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);

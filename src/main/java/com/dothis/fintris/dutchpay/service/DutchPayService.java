@@ -156,6 +156,7 @@ public class DutchPayService {
     }
 
     // 같은 거래를 두 번 고르지 않았는지, 내 거래인지, 방향이 맞는지, 취소되지 않았는지 본다
+    // 소비 제외된 출금(체크카드 중복의 은행 쪽 등)은 쓴 돈에 안 잡혀 결제로 고르면 내 몫이 엉뚱한 거래에 붙는다
     private List<Transaction> loadOwned(Long userId, List<Long> ids, List<Long> otherIds, boolean payment) {
         Set<Long> unique = new HashSet<>(ids);
         if (unique.size() != ids.size() || otherIds.stream().anyMatch(unique::contains)) {
@@ -181,6 +182,9 @@ public class DutchPayService {
                 throw GeneralException.of(payment
                         ? DutchPayErrorCode.DUTCH_PAY_INVALID_PAYMENT
                         : DutchPayErrorCode.DUTCH_PAY_INVALID_RECEIVED);
+            }
+            if (payment && transaction.isExcluded()) {
+                throw GeneralException.of(DutchPayErrorCode.DUTCH_PAY_EXCLUDED_PAYMENT);
             }
             result.add(transaction);
         }
