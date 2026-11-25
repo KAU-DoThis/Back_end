@@ -74,6 +74,7 @@ public class TransactionSyncService {
                 : accounts.stream().map(LinkedAccount::getLastSyncedAt).min(LocalDateTime::compareTo)
                         .map(at -> at.toLocalDate().minusDays(1)).orElse(LocalDate.now(KST));
         int failed = 0;
+        List<Long> changedCardIds = new ArrayList<>();
         for (LinkedAccount bank : accounts.stream().filter(account -> account.getType() == LinkedAccountType.BANK).toList()) {
             try {
                 syncAccount(bank);
@@ -87,7 +88,7 @@ public class TransactionSyncService {
                 .collect(Collectors.groupingBy(LinkedAccount::getInstitutionCode, LinkedHashMap::new, Collectors.toList()));
         for (List<LinkedAccount> cards : cardsByInstitution.values()) {
             try {
-                syncCardInstitution(cards);
+                syncCardInstitution(cards, changedCardIds);
             } catch (RuntimeException e) {
                 failed += cards.size();
                 log.warn("카드 승인내역 동기화 실패: institution={}, reason={}", cards.getFirst().getInstitutionCode(),
@@ -108,6 +109,8 @@ public class TransactionSyncService {
         } catch (RuntimeException e) {
             log.warn("블록 반영 실패");
         }
+        // 블록 반영이 돌려놓은 돈을 되돌린 뒤에 계산해야 줄어든 몫을 블록에서 다시 뺄 수 있다
+        recalculateDutchPays(changedCardIds);
         return new SyncSummary(accounts.size(), failed);
     }
 
@@ -154,7 +157,8 @@ public class TransactionSyncService {
     }
 
     // 같은 카드사의 카드들은 connectedId가 같아 한 번에 조회한다. 새로 저장한 거래 수를 돌려준다
-    public int syncCardInstitution(List<LinkedAccount> cards) {
+    // changedIds: 취소·부분취소로 바뀐 거래 ID를 담는다. 더치페이는 블록 반영 뒤 syncUser가 다시 계산한다
+    public int syncCardInstitution(List<LinkedAccount> cards, List<Long> changedIds) {
         LinkedAccount first = cards.getFirst();
         LocalDateTime now = LocalDateTime.now(KST);
         LocalDate end = now.toLocalDate();
@@ -176,7 +180,6 @@ public class TransactionSyncService {
                 : transactionRepository.findAllByUser_IdAndExternalKeyIn(first.getUser().getId(), byKey.keySet()).stream()
                         .collect(Collectors.toMap(Transaction::getExternalKey, Function.identity()));
         List<Transaction> toSave = new ArrayList<>();
-        List<Transaction> changed = new ArrayList<>();
         int created = 0;
         for (Map.Entry<String, CardApproval> entry : byKey.entrySet()) {
             Transaction saved = existing.get(entry.getKey());
@@ -185,11 +188,10 @@ public class TransactionSyncService {
                 created++;
             } else if (applyCancel(saved, entry.getValue())) {
                 toSave.add(saved);
-                changed.add(saved);
+                changedIds.add(saved.getId());
             }
         }
         transactionRepository.saveAll(toSave);
-        recalculateDutchPays(changed);
 
         // 카드는 잔액이 없어 동기화 시각만 갱신한다
         cards.forEach(card -> card.markSynced(now, null));
@@ -325,12 +327,22 @@ public class TransactionSyncService {
 
     // 취소·부분취소로 금액이 바뀐 결제가 더치페이에 묶여 있으면 내 몫을 다시 계산한다.
     // 블록 반영이 다시 맞춰지지 않는 부분취소(뺀 금액보다 남은 금액이 큼)도 있어 여기서 따로 부른다
-    private void recalculateDutchPays(List<Transaction> changed) {
-        for (Transaction transaction : changed) {
-            try {
-                dutchPayService.recalculateFor(transaction.getId());
-            } catch (OptimisticLockingFailureException e) {
-                log.warn("더치페이 다시 계산 충돌로 건너뜀: transactionId={}", transaction.getId());
+    // 다음 동기화는 이미 바뀐 금액이라 다시 부르지 않으니, 충돌은 몇 번 다시 시도하고 한 건이 실패해도 나머지는 계속한다
+    void recalculateDutchPays(List<Long> transactionIds) {
+        for (Long transactionId : transactionIds) {
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    dutchPayService.recalculateFor(transactionId);
+                    break;
+                } catch (OptimisticLockingFailureException e) {
+                    if (attempt >= MAX_RECONCILE_ATTEMPTS) {
+                        log.warn("더치페이 다시 계산 충돌로 건너뜀: transactionId={}", transactionId);
+                        break;
+                    }
+                } catch (RuntimeException e) {
+                    log.warn("더치페이 다시 계산 실패: transactionId={}, reason={}", transactionId, e.getClass().getSimpleName());
+                    break;
+                }
             }
         }
     }
