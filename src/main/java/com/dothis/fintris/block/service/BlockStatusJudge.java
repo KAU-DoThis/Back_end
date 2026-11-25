@@ -106,16 +106,17 @@ public final class BlockStatusJudge {
     }
 
     // 고정지출형: 다음 납부일에 낼 돈을 확보했는지. 모자라도 나눌 돈으로 메울 수 있으면 주의,
-    // 메울 수 없는데 납부일이 3일 안이면 위험. 이번 납부를 이미 냈으면 안전
+    // 메울 수 없는데 납부일이 3일 안이면 위험. 이번 달에 납부액만큼 다 냈으면 안전
+    // 일부만 냈으면(금액 범위 조건) 남은 납부액 = 납부액 - 이번 달 낸 금액으로 부족액을 본다
     public static Judgement fixed(long balance, Long payAmount, Integer payDay, LocalDate today,
-                                  long waitingFundTotal, boolean paidThisCycle) {
+                                  long waitingFundTotal, long paidThisMonth) {
         if (payAmount == null || payAmount <= 0) {
             return Judgement.safe(null);
         }
-        if (paidThisCycle) {
+        if (paidThisMonth >= payAmount) {
             return Judgement.safe("이번 달 납부 완료");
         }
-        long shortage = payAmount - balance;
+        long shortage = payAmount - Math.max(0, paidThisMonth) - balance;
         if (shortage <= 0) {
             return Judgement.safe("납부 준비 끝");
         }
