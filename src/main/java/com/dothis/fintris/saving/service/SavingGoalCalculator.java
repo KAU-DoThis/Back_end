@@ -35,12 +35,32 @@ public final class SavingGoalCalculator {
         return Math.max(0, baseAmount - actualAmount);
     }
 
-    // 진행률(%) = 쓴 돈 ÷ 목표 지출액, 내림. 100을 넘을 수 있다. 목표가 0원이면 null
-    public static Integer progressRate(long spent, long targetAmount) {
+    // 진행률(%) = 쓴 돈 ÷ 목표 지출액, 내림. 100을 넘을 수 있어 int로 줄이지 않는다. 목표가 0원이면 null
+    public static Long progressRate(long spent, long targetAmount) {
         if (targetAmount <= 0) {
             return null;
         }
-        return (int) (Math.max(0, spent) * 100 / targetAmount);
+        return Math.multiplyExact(Math.max(0, spent), 100L) / targetAmount;
+    }
+
+    // 생활비가 모자라 절약액 합(total)보다 적게(movable) 옮길 때 카테고리별 내역도 같은 비율로 줄인다
+    // 각 몫은 내림하고, 남는 원 단위는 가장 많이 아낀 카테고리에 더해 합이 movable과 정확히 같게 한다
+    public static long[] scaleDown(long[] savings, long total, long movable) {
+        long[] scaled = savings.clone();
+        if (movable >= total || total <= 0) {
+            return scaled;
+        }
+        long sum = 0;
+        int largest = 0;
+        for (int i = 0; i < savings.length; i++) {
+            scaled[i] = Math.multiplyExact(savings[i], movable) / total;
+            sum += scaled[i];
+            if (savings[i] > savings[largest]) {
+                largest = i;
+            }
+        }
+        scaled[largest] += movable - sum;
+        return scaled;
     }
 
     // 기간을 안 보내면 시작일부터 1개월 (예: 10/15 ~ 11/14)

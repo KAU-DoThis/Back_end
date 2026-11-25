@@ -1,5 +1,7 @@
 package com.dothis.fintris.saving.service;
 
+import com.dothis.fintris.account.entity.LinkedAccount;
+import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockTransfer;
 import com.dothis.fintris.block.entity.TransferReason;
@@ -8,6 +10,8 @@ import com.dothis.fintris.block.repository.BlockTransferRepository;
 import com.dothis.fintris.saving.entity.SavingGoal;
 import com.dothis.fintris.saving.entity.SavingGoalStatus;
 import com.dothis.fintris.saving.repository.SavingGoalRepository;
+import com.dothis.fintris.transaction.dto.SyncStatus;
+import com.dothis.fintris.transaction.service.SyncStateRegistry;
 import com.dothis.fintris.waitingfund.entity.WaitingFund;
 import com.dothis.fintris.waitingfund.entity.WaitingFundSource;
 import com.dothis.fintris.waitingfund.repository.WaitingFundRepository;
@@ -37,12 +41,48 @@ public class SavingGoalConfirmService {
     private final BlockRepository blockRepository;
     private final BlockTransferRepository blockTransferRepository;
     private final WaitingFundRepository waitingFundRepository;
+    private final LinkedAccountRepository linkedAccountRepository;
+    private final SyncStateRegistry syncStateRegistry;
 
-    // 한 사용자의 확정 대상 목표를 한 트랜잭션에서 처리한다. 같은 날 끝난 목표는 절약분 하나로 묶는다
+    // 같은 사용자·같은 종료일의 확정 대상. 절약분 나눌 돈 하나로 묶는다
+    public record DueGroup(Long userId, LocalDate endDate, List<Long> savingGoalIds) {
+    }
+
+    // 기간이 끝난(종료일 < 오늘) 진행 중 목표를 사용자·종료일별로 묶는다
+    // 확정이 하루 밀려 종료일이 다른 목표가 함께 대상이 돼도 절약분은 종료일마다 따로 만든다
+    @Transactional(readOnly = true)
+    public List<DueGroup> dueGroups(LocalDate today) {
+        Map<String, DueGroup> groups = new LinkedHashMap<>();
+        for (SavingGoal goal : savingGoalRepository.findAllByStatusAndEndDateBefore(SavingGoalStatus.ACTIVE, today)) {
+            Long userId = goal.getUser().getId();
+            groups.computeIfAbsent(userId + "|" + goal.getEndDate(),
+                    key -> new DueGroup(userId, goal.getEndDate(), new ArrayList<>()))
+                    .savingGoalIds().add(goal.getId());
+        }
+        return List.copyOf(groups.values());
+    }
+
+    // 기간 중 거래가 다 들어온 뒤에만 확정한다: 동기화가 진행 중이 아니고, 연동한 모든 계좌·카드가
+    // 종료일 다음 날 이후에 동기화를 마쳤어야 한다. 아니면 목표는 진행 중으로 남아 다음 날 다시 확정 대상이 된다
+    @Transactional(readOnly = true)
+    public boolean isSyncedAfter(Long userId, LocalDate endDate) {
+        if (syncStateRegistry.get(userId).status() == SyncStatus.IN_PROGRESS) {
+            return false;
+        }
+        LocalDateTime periodOver = endDate.plusDays(1).atStartOfDay();
+        return linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId).stream()
+                .map(LinkedAccount::getLastSyncedAt)
+                .allMatch(syncedAt -> syncedAt != null && !syncedAt.isBefore(periodOver));
+    }
+
+    // 한 묶음을 한 트랜잭션에서 처리한다. 목표·블록·나눌 돈은 @Version이 있어서 겹쳐 실행되면
+    // 나중 트랜잭션이 통째로 롤백된다 (절약액이 두 번 옮겨지지 않는다)
     @Transactional
-    public void confirmUser(Long userId, List<Long> savingGoalIds) {
+    public void confirm(DueGroup group) {
         LocalDateTime now = LocalDateTime.now(KST);
-        List<SavingGoal> goals = savingGoalRepository.findAllById(savingGoalIds).stream()
+        Long userId = group.userId();
+        // 확정 직전에 다시 읽어 진행 중인 내 목표만 남긴다 (그 사이 취소됐으면 건너뛴다)
+        List<SavingGoal> goals = savingGoalRepository.findAllById(group.savingGoalIds()).stream()
                 .filter(goal -> goal.getStatus() == SavingGoalStatus.ACTIVE && goal.isOwnedBy(userId))
                 .toList();
         if (goals.isEmpty()) {
@@ -52,16 +92,12 @@ public class SavingGoalConfirmService {
         long[] actual = new long[goals.size()];
         long[] saving = new long[goals.size()];
         long total = 0;
-        List<WaitingFund.Breakdown> breakdown = new ArrayList<>();
         for (int i = 0; i < goals.size(); i++) {
             SavingGoal goal = goals.get(i);
             actual[i] = savingGoalService.spent(userId, goal.getCategory().getId(), goal.getStartDate(),
                     goal.getEndDate().plusDays(1));
             saving[i] = SavingGoalCalculator.confirmedSaving(goal.getBaseAmount(), actual[i]);
             total += saving[i];
-            if (saving[i] > 0) {
-                breakdown.add(new WaitingFund.Breakdown(goal.getCategory().getName(), saving[i]));
-            }
         }
 
         // 생활비가 모자라면(절약한 만큼 다른 데 썼으면) 꺼낼 수 있는 만큼만 옮긴다 (F-05 예외 처리)
@@ -70,12 +106,20 @@ public class SavingGoalConfirmService {
 
         WaitingFund fund = null;
         if (movable > 0) {
+            // 카테고리별 내역 합이 실제로 옮긴 금액과 같도록 같은 비율로 줄인다
+            long[] moved = SavingGoalCalculator.scaleDown(saving, total, movable);
+            List<WaitingFund.Breakdown> breakdown = new ArrayList<>();
+            for (int i = 0; i < goals.size(); i++) {
+                if (moved[i] > 0) {
+                    breakdown.add(new WaitingFund.Breakdown(goals.get(i).getCategory().getName(), moved[i]));
+                }
+            }
             living.withdraw(movable);
             fund = waitingFundRepository.save(WaitingFund.builder()
                     .user(living.getUser())
                     .source(WaitingFundSource.SAVING)
                     .label(WaitingFundSource.SAVING.getDefaultLabel())
-                    .description(goals.get(0).getEndDate().getMonthValue() + "월 절약 확정")
+                    .description(group.endDate().getMonthValue() + "월 절약 확정")
                     .amount(movable)
                     .originalAmount(movable)
                     .savingGoalId(goals.size() == 1 ? goals.get(0).getId() : null)
@@ -94,15 +138,5 @@ public class SavingGoalConfirmService {
             goals.get(i).confirm(actual[i], saving[i], saving[i] > 0 ? fundId : null, now);
         }
         // TODO: 확정 알림(SAVING_CONFIRMED)은 알림(F-22)이 붙으면 보낸다 (김지현)
-    }
-
-    // 기간이 끝난(종료일 < 오늘) 진행 중 목표를 사용자별로 묶는다
-    @Transactional(readOnly = true)
-    public Map<Long, List<Long>> dueGoalIdsByUser(LocalDate today) {
-        Map<Long, List<Long>> result = new LinkedHashMap<>();
-        for (SavingGoal goal : savingGoalRepository.findAllByStatusAndEndDateBefore(SavingGoalStatus.ACTIVE, today)) {
-            result.computeIfAbsent(goal.getUser().getId(), key -> new ArrayList<>()).add(goal.getId());
-        }
-        return result;
     }
 }

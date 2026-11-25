@@ -18,7 +18,8 @@ public record SavingGoalResponse(
         @Schema(example = "2026-12-21") LocalDate endDate,
         @Schema(example = "ACTIVE") SavingGoalStatus status,
         @Schema(description = "기간 중 지금까지 쓴 돈. 확정됐으면 실제 지출액", example = "21000") long spent,
-        @Schema(description = "진행률(%) = 쓴 돈 ÷ 목표 지출액. 목표가 0원이면 null", example = "50") Integer progressRate,
+        @Schema(description = "진행률(%) = 쓴 돈 ÷ 목표 지출액. 100을 넘을 수 있다. 목표가 0원이면 null", example = "50")
+        Long progressRate,
         @Schema(description = "확정 절약액을 먼저 채울 블록. 없으면 null") LinkedBlock linkedBlock,
         @Schema(example = "21") Long suggestionId,
         @Schema(description = "확정 절약액 = 기준 - 실제 (0 미만이면 0). 확정 전 null", example = "null") Long confirmedSaving,
