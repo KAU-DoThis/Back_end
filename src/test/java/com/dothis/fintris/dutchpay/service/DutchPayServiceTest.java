@@ -286,6 +286,20 @@ class DutchPayServiceTest {
                 .extracting(DutchPayServiceTest::codeOf).isEqualTo(TransactionErrorCode.TRANSACTION_FORBIDDEN);
     }
 
+    @Test
+    @DisplayName("묶은 뒤 취소된 결제는 취소됐다고 알려 준다")
+    void canceledAfterLinked() {
+        Transaction food = transaction(1L, user, 30_000L, TransactionDirection.OUT, living);
+        Transaction friendA = transaction(2L, user, 15_000L, TransactionDirection.IN, null);
+        existing(food, friendA);
+        food.cancel();
+
+        DutchPayResponse response = service.changeMyShare(USER_ID, 7L, null);
+
+        assertThat(response.payments()).extracting(DutchPayResponse.Payment::canceled).containsExactly(true);
+        assertThat(response.received()).extracting(DutchPayResponse.Received::canceled).containsExactly(false);
+    }
+
     // 이미 만들어진 더치페이: 결제 food(30,000, 생활비)와 받은 돈 friendA(15,000)로 생활비에 15,000원을 돌려놓은 상태
     private DutchPay existing(Transaction food, Transaction friendA) {
         DutchPay dutchPay = DutchPay.builder().user(user).build();

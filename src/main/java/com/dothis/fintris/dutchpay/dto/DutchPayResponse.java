@@ -23,6 +23,7 @@ public record DutchPayResponse(
     public record Payment(
             @Schema(example = "120") Long transactionId,
             @Schema(example = "30000") long amount,
+            @Schema(description = "묶은 뒤 카드 취소로 취소됐으면 true. 수정할 때는 이 거래를 빼고 보낸다", example = "false") boolean canceled,
             @Schema(description = "내 몫 합을 결제 금액 비율로 나눈 이 결제의 내 몫", example = "15000") long myShare,
             @Schema(description = "받은 돈을 돌려놓은 블록(이 결제가 반영된 블록). 블록에 반영되지 않은 결제면 null") ReturnedBlock returnedBlock
     ) {
@@ -30,7 +31,8 @@ public record DutchPayResponse(
 
     public record Received(
             @Schema(example = "130") Long transactionId,
-            @Schema(example = "15000") long amount
+            @Schema(example = "15000") long amount,
+            @Schema(description = "취소됐으면 true. 수정할 때는 이 거래를 빼고 보낸다", example = "false") boolean canceled
     ) {
     }
 

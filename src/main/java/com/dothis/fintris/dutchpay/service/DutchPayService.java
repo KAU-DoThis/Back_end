@@ -211,14 +211,16 @@ public class DutchPayService {
         for (DutchPayTransaction link : links) {
             Transaction transaction = link.getTransaction();
             if (transaction.getDirection() == TransactionDirection.OUT) {
-                payments.add(new DutchPayResponse.Payment(transaction.getId(), transaction.getAmount(), link.getMyShare(),
+                payments.add(new DutchPayResponse.Payment(transaction.getId(), transaction.getAmount(),
+                        transaction.isCanceled(), link.getMyShare(),
                         link.getBlock() == null ? null : new DutchPayResponse.ReturnedBlock(
                                 link.getBlock().getId(), link.getBlock().getName(), link.getReturnedAmount())));
                 paidTotal += transaction.isCanceled() ? 0 : transaction.getAmount();
                 myShareTotal += link.getMyShare();
                 returnedTotal += link.getReturnedAmount() == null ? 0 : link.getReturnedAmount();
             } else {
-                received.add(new DutchPayResponse.Received(transaction.getId(), transaction.getAmount()));
+                received.add(new DutchPayResponse.Received(transaction.getId(), transaction.getAmount(),
+                        transaction.isCanceled()));
                 receivedTotal += transaction.isCanceled() ? 0 : transaction.getAmount();
             }
         }
