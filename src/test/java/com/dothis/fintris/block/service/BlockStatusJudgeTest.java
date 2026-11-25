@@ -157,31 +157,44 @@ class BlockStatusJudgeTest {
         @Test
         @DisplayName("납부액을 다 모았으면 안전")
         void ready() {
-            assertThat(BlockStatusJudge.fixed(600_000, 600_000L, PAY_DAY, DAY_10, 0, false))
+            assertThat(BlockStatusJudge.fixed(600_000, 600_000L, PAY_DAY, DAY_10, 0, 0))
                     .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.SAFE, "납부 준비 끝");
         }
 
         @Test
         @DisplayName("이번 납부를 이미 냈으면 잔액이 비어도 안전")
         void alreadyPaid() {
-            assertThat(BlockStatusJudge.fixed(0, 600_000L, PAY_DAY, DAY_10, 0, true))
+            assertThat(BlockStatusJudge.fixed(0, 600_000L, PAY_DAY, DAY_10, 0, 600_000))
                     .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.SAFE, "이번 달 납부 완료");
+        }
+
+        @Test
+        @DisplayName("일부만 냈으면 남은 납부액(납부액 - 낸 금액)으로 부족액을 본다")
+        void partiallyPaid() {
+            LocalDate twoDaysBefore = LocalDate.of(2026, 11, 23);
+            // 600,000원 중 400,000원을 냈고 잔액 200,000원 → 남은 납부액을 잔액으로 채울 수 있다
+            assertThat(BlockStatusJudge.fixed(200_000, 600_000L, PAY_DAY, twoDaysBefore, 0, 400_000))
+                    .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.SAFE, "납부 준비 끝");
+            // 잔액 100,000원이면 100,000원이 모자라고, 나눌 돈이 없으니 납부 3일 전 이내라 위험
+            assertThat(BlockStatusJudge.fixed(100_000, 600_000L, PAY_DAY, twoDaysBefore, 0, 400_000))
+                    .extracting(Judgement::status, Judgement::reason)
+                    .containsExactly(BlockStatus.DANGER, "11월 25일 납부까지 100,000원이 모자라요. 다른 블록에서 옮겨 와야 해요.");
         }
 
         @Test
         @DisplayName("모자라도 나눌 돈으로 메울 수 있으면 납부일이 가까워도 주의")
         void coverable() {
             LocalDate twoDaysBefore = LocalDate.of(2026, 11, 23);
-            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, PAY_DAY, twoDaysBefore, 100_000, false))
+            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, PAY_DAY, twoDaysBefore, 100_000, 0))
                     .extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.CAUTION, "납부액 부족");
         }
 
         @Test
         @DisplayName("메울 수 없으면 납부 3일 전부터 위험, 그 전에는 주의")
         void notCoverable() {
-            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, PAY_DAY, LocalDate.of(2026, 11, 22), 0, false).status())
+            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, PAY_DAY, LocalDate.of(2026, 11, 22), 0, 0).status())
                     .isEqualTo(BlockStatus.DANGER);
-            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, PAY_DAY, LocalDate.of(2026, 11, 21), 0, false).status())
+            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, PAY_DAY, LocalDate.of(2026, 11, 21), 0, 0).status())
                     .isEqualTo(BlockStatus.CAUTION);
         }
 
@@ -189,7 +202,7 @@ class BlockStatusJudgeTest {
         @DisplayName("납부일이 그 달에 없으면 말일 기준으로 3일을 센다")
         void payDayMissingInMonth() {
             // 2월은 28일까지 → 31일 납부는 2/28
-            assertThat(BlockStatusJudge.fixed(0, 600_000L, 31, LocalDate.of(2027, 2, 25), 0, false).status())
+            assertThat(BlockStatusJudge.fixed(0, 600_000L, 31, LocalDate.of(2027, 2, 25), 0, 0).status())
                     .isEqualTo(BlockStatus.DANGER);
         }
     }
@@ -215,9 +228,9 @@ class BlockStatusJudgeTest {
         @Test
         @DisplayName("고정지출형은 납부일과 모자란 금액, 채울 방법을 알려준다")
         void fixed() {
-            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, 25, DAY_10, 100_000, false).reason())
+            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, 25, DAY_10, 100_000, 0).reason())
                     .isEqualTo("11월 25일 납부까지 100,000원이 모자라요. 나눌 돈으로 채울 수 있어요.");
-            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, 25, DAY_10, 0, false).reason())
+            assertThat(BlockStatusJudge.fixed(500_000, 600_000L, 25, DAY_10, 0, 0).reason())
                     .endsWith("다른 블록에서 옮겨 와야 해요.");
         }
 
