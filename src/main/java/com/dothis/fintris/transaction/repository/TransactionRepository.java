@@ -55,12 +55,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             """)
     long sumBlockPaidSince(@Param("blockId") Long blockId, @Param("from") LocalDateTime from);
 
-    // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
+    // 블록 상세 "오늘 쓴 돈"·상태 판정 소진액: 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
+    // 취소 거래는 블록 연결이 풀리기 전(동기화 중)에도 빼서 소진 속도가 잠깐 앞서 나가지 않게 한다
     @Query("""
             select new com.dothis.fintris.transaction.repository.BlockSpent(
               coalesce(sum(t.amount), 0), coalesce(sum(t.blockAmount), 0))
             from Transaction t
-            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to and t.isCanceled = false
             """)
     BlockSpent sumBlockSpent(@Param("blockId") Long blockId,
                              @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
@@ -70,7 +71,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             select new com.dothis.fintris.transaction.repository.DayTotal(
               cast(t.occurredAt as LocalDate), coalesce(sum(t.amount), 0))
             from Transaction t
-            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to and t.isCanceled = false
             group by cast(t.occurredAt as LocalDate)
             """)
     List<DayTotal> sumBlockSpentByDay(@Param("blockId") Long blockId,
