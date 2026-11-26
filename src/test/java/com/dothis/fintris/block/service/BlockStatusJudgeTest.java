@@ -111,9 +111,17 @@ class BlockStatusJudgeTest {
         @DisplayName("월 확보 금액대로 모아도 기한을 넘기면 주의와 늦어지는 기간")
         void lateAtMonthlyPace() {
             // 월 10만 원이면 300일 뒤 → 2027-03-31 기한보다 23주 늦음
-            Judgement result = BlockStatusJudge.goal(0, TARGET, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 100_000);
+            Judgement result = BlockStatusJudge.goal(0, TARGET, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 0);
 
             assertThat(result).extracting(Judgement::status, Judgement::subLabel).containsExactly(BlockStatus.CAUTION, "23주 늦어짐");
+        }
+
+        @Test
+        @DisplayName("이번 달 몫을 다 채웠으면 월 확보 금액대로는 늦어지더라도 안전")
+        void monthlyMetBeforeLate() {
+            Judgement result = BlockStatusJudge.goal(0, TARGET, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 100_000);
+
+            assertThat(result.status()).isEqualTo(BlockStatus.SAFE);
         }
 
         @Test
@@ -237,7 +245,7 @@ class BlockStatusJudgeTest {
         @Test
         @DisplayName("목표형은 늦어지는 기간이나 이번 달 예상 확보율을 알려준다")
         void goal() {
-            assertThat(BlockStatusJudge.goal(0, 1_000_000, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 100_000).reason())
+            assertThat(BlockStatusJudge.goal(0, 1_000_000, 100_000L, LocalDate.of(2027, 3, 31), DAY_10, 0).reason())
                     .isEqualTo("매달 100,000원씩 모으면 목표일보다 23주 늦어져요.");
             assertThat(BlockStatusJudge.goal(0, 1_000_000, 200_000L, LocalDate.of(2027, 12, 31),
                     LocalDate.of(2026, 11, 15), 80_000).reason())
