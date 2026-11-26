@@ -65,7 +65,7 @@ public final class BlockStatusJudge {
     // 목표형 (기능명세서 F-11, 팀 협의로 보완)
     // 1. 다 모았으면 안전, 기한이 지났는데 못 모았으면 위험
     // 2. 이번 달 확보액이 월 확보 금액 이상이면 안전 (이슈 #58·F-11 안전 기준이라 늦어짐보다 먼저 본다)
-    // 3. 월 확보 금액대로 모아도 기한을 넘기면 주의 ("2주 늦어짐")
+    // 3. 월 확보 금액대로 모아도 기한을 넘기면 기한 내 달성 불가라 위험 ("2주 늦어짐", 이슈 #58·F-11 위험 기준)
     // 4. 달 초(경과율 25% 전)는 아직 안 들어온 돈이 많아 월말 예상으로 판정하지 않는다
     // 5. 월말 예상 확보율(이번 달 확보액 ÷ 경과율 ÷ 월 확보 금액)이 70~100%면 주의, 70% 미만이면 위험
     public static Judgement goal(long balance, long targetAmount, Long monthlyTarget, LocalDate dueDate,
@@ -87,8 +87,9 @@ public final class BlockStatusJudge {
         LocalDate paceDate = ImpactCalculator.expectedDate(targetAmount, balance, monthlyTarget, today);
         if (dueDate != null && paceDate != null && paceDate.isAfter(dueDate)) {
             String late = ImpactCalculator.span(ChronoUnit.DAYS.between(dueDate, paceDate));
-            return new Judgement(BlockStatus.CAUTION, late + " 늦어짐",
-                    "매달 %s원씩 모으면 목표일보다 %s 늦어져요.".formatted(ImpactCalculator.won(monthlyTarget), late));
+            return new Judgement(BlockStatus.DANGER, late + " 늦어짐",
+                    "매달 %s원씩 모으면 목표일보다 %s 늦어져서 기한 안에 다 모으기 어려워요."
+                            .formatted(ImpactCalculator.won(monthlyTarget), late));
         }
         double monthElapsed = (double) today.getDayOfMonth() / today.lengthOfMonth();
         if (monthElapsed < GOAL_JUDGE_FROM) {
