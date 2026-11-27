@@ -7,6 +7,7 @@ import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.CompareTo;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.Period;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.Recurring;
 import com.dothis.fintris.analysis.dto.SpendingAnalysisResponse.TimeOfDay;
+import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.repository.CategorySpent;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
@@ -38,6 +39,7 @@ public class SpendingAnalysisService {
 
     private final TransactionRepository transactionRepository;
     private final RecurringSpendingFinder recurringSpendingFinder;
+    private final DutchPayTransactionRepository dutchPayTransactionRepository;
 
     public SpendingAnalysisResponse getSpending(Long userId, YearMonth month) {
         LocalDate today = LocalDate.now(KST);
@@ -77,7 +79,19 @@ public class SpendingAnalysisService {
     private List<Recurring> recurring(Long userId, Period period) {
         List<Transaction> history = transactionRepository.findSpent(userId,
                 period.from().minusMonths(RECURRING_HISTORY_MONTHS).atStartOfDay(), period.to().plusDays(1).atStartOfDay());
-        return recurringSpendingFinder.find(history, period.from());
+        return recurringSpendingFinder.find(history, period.from(), myShares(history));
+    }
+
+    // 더치페이 결제는 내 몫만 쓴 돈으로 센다 (N-06)
+    private Map<Long, Long> myShares(List<Transaction> history) {
+        if (history.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Long> shares = new HashMap<>();
+        dutchPayTransactionRepository.findAllByTransaction_IdIn(history.stream().map(Transaction::getId).toList())
+                .stream().filter(link -> link.getMyShare() != null)
+                .forEach(link -> shares.put(link.getTransaction().getId(), link.getMyShare()));
+        return shares;
     }
 
     // 미분류는 무엇이 늘었는지 말할 수 없어 뺀다
