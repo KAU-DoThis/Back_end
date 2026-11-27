@@ -23,6 +23,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import com.dothis.fintris.dutchpay.service.DutchPayService;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,6 +34,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +44,8 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,6 +61,7 @@ class TransactionSyncServiceTest {
     private static final LocalDateTime T2 = LocalDateTime.of(2026, 10, 2, 18, 0, 0);
 
     @Mock TransactionRepository transactionRepository;
+    @Mock DutchPayService dutchPayService;
     @Mock LinkedAccountRepository linkedAccountRepository;
     @Mock CodefBankTransactionClient codefBankTransactionClient;
     @Mock CodefCardApprovalClient codefCardApprovalClient;
@@ -374,7 +380,7 @@ class TransactionSyncServiceTest {
         givenApprovals(approval("6056********2222", "30012345", 4_500, ApprovalStatus.APPROVED, 0));
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
-        int count = service.syncCardInstitution(List.of(first, second));
+        int count = service.syncCardInstitution(List.of(first, second), new ArrayList<>());
 
         verify(codefCardApprovalClient).fetchApprovals("cid-card", SHINHAN_CARD, today.minusMonths(3), today);
         assertThat(count).isEqualTo(1);
@@ -399,7 +405,7 @@ class TransactionSyncServiceTest {
         LinkedAccount second = card(22L, "6056********2222", "2222", LocalDateTime.of(2026, 11, 3, 6, 0));
         givenApprovals();
 
-        service.syncCardInstitution(List.of(first, second));
+        service.syncCardInstitution(List.of(first, second), new ArrayList<>());
 
         verify(codefCardApprovalClient).fetchApprovals(eq("cid-card"), eq(SHINHAN_CARD),
                 eq(LocalDate.of(2026, 11, 2)), any());
@@ -417,7 +423,7 @@ class TransactionSyncServiceTest {
         givenApprovals(canceled);
         when(transactionRepository.findAllByUser_IdAndExternalKeyIn(eq(1L), any())).thenReturn(List.of(existing));
 
-        int count = service.syncCardInstitution(List.of(card));
+        int count = service.syncCardInstitution(List.of(card), new ArrayList<>());
 
         assertThat(count).isZero();
         assertThat(existing.isCanceled()).isTrue();
@@ -433,13 +439,53 @@ class TransactionSyncServiceTest {
                 .direction(TransactionDirection.OUT).source(TransactionSource.CODEF)
                 .status(TransactionStatus.CONFIRMED)
                 .externalKey(TransactionSyncService.cardExternalKey(SHINHAN_CARD, partial)).build();
+        ReflectionTestUtils.setField(existing, "id", 31L);
         givenApprovals(partial);
         when(transactionRepository.findAllByUser_IdAndExternalKeyIn(eq(1L), any())).thenReturn(List.of(existing));
+        List<Long> changed = new ArrayList<>();
 
-        service.syncCardInstitution(List.of(card));
+        service.syncCardInstitution(List.of(card), changed);
 
         assertThat(existing.getAmount()).isEqualTo(7_000L);
         assertThat(existing.isCanceled()).isFalse();
+        assertThat(changed).containsExactly(31L);
+    }
+
+    @Test
+    @DisplayName("취소·부분취소된 카드 결제의 더치페이는 블록 반영을 맞춘 뒤에 다시 계산한다")
+    void recalculatesDutchPayAfterBlocks() {
+        LinkedAccount card = card(21L, "6056********1111", "1111", null);
+        CardApproval partial = approval("6056********1111", "30012345", 10_000, ApprovalStatus.PARTIAL_CANCELED, 3_000);
+        Transaction existing = Transaction.builder().user(user).linkedAccount(card).occurredAt(C1).amount(10_000L)
+                .direction(TransactionDirection.OUT).source(TransactionSource.CODEF)
+                .status(TransactionStatus.CONFIRMED)
+                .externalKey(TransactionSyncService.cardExternalKey(SHINHAN_CARD, partial)).build();
+        ReflectionTestUtils.setField(existing, "id", 31L);
+        when(linkedAccountRepository.findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(1L)).thenReturn(List.of(card));
+        givenApprovals(partial);
+        when(transactionRepository.findAllByUser_IdAndExternalKeyIn(eq(1L), any())).thenReturn(List.of(existing));
+        LocalDateTime confirmedAt = LocalDateTime.of(2026, 11, 1, 12, 0);
+        when(blockReflector.blocksConfirmedAt(1L)).thenReturn(Optional.of(confirmedAt));
+        when(transactionRepository.findOutgoingIdsSince(eq(1L), any())).thenReturn(List.of(31L));
+
+        service.syncUser(1L);
+
+        InOrder order = inOrder(blockReflectionService, dutchPayService);
+        order.verify(blockReflectionService).reconcileIfNeeded(31L, confirmedAt);
+        order.verify(dutchPayService).recalculateFor(31L);
+    }
+
+    @Test
+    @DisplayName("더치페이 다시 계산이 충돌하면 세 번까지 다시 시도하고, 한 건이 실패해도 다음 거래를 계속한다")
+    void retriesDutchPayRecalculation() {
+        doThrow(new OptimisticLockingFailureException("conflict")).when(dutchPayService).recalculateFor(31L);
+        doThrow(new IllegalStateException("boom")).when(dutchPayService).recalculateFor(32L);
+
+        service.recalculateDutchPays(List.of(31L, 32L, 33L));
+
+        verify(dutchPayService, times(3)).recalculateFor(31L);
+        verify(dutchPayService).recalculateFor(32L);
+        verify(dutchPayService).recalculateFor(33L);
     }
 
     @Test
@@ -450,7 +496,7 @@ class TransactionSyncServiceTest {
                 approval("6056********1111", "2", 10_000, ApprovalStatus.PARTIAL_CANCELED, 3_000),
                 approval("6056********1111", "3", 8_000, ApprovalStatus.REJECTED, 0));
 
-        int count = service.syncCardInstitution(List.of(card));
+        int count = service.syncCardInstitution(List.of(card), new ArrayList<>());
 
         assertThat(count).isEqualTo(2);
         assertThat(savedTransactions()).extracting(Transaction::getAmount, Transaction::isCanceled)
@@ -465,7 +511,7 @@ class TransactionSyncServiceTest {
         givenApprovals(approval("6056-****-****-2222", "1", 1_000, ApprovalStatus.APPROVED, 0),
                 approval(null, "2", 2_000, ApprovalStatus.APPROVED, 0));
 
-        service.syncCardInstitution(List.of(first, second));
+        service.syncCardInstitution(List.of(first, second), new ArrayList<>());
 
         assertThat(savedTransactions()).extracting(Transaction::getLinkedAccount).containsExactly(second, first);
     }
@@ -490,7 +536,7 @@ class TransactionSyncServiceTest {
         when(codefCardApprovalClient.fetchApprovals(any(), any(), any(), any()))
                 .thenReturn(new CardApprovalsResult(List.of(), "CF-12801", "실패"));
 
-        assertThatThrownBy(() -> service.syncCardInstitution(List.of(first, second)))
+        assertThatThrownBy(() -> service.syncCardInstitution(List.of(first, second), new ArrayList<>()))
                 .isInstanceOf(AccountLinkRejectedException.class);
         assertThat(first.getStatus()).isEqualTo(LinkedAccountStatus.EXPIRED);
         assertThat(second.getStatus()).isEqualTo(LinkedAccountStatus.EXPIRED);

@@ -49,20 +49,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     Slice<Transaction> findByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId, Pageable pageable);
 
     // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
+    // 더치페이 결제는 내 몫만 쓴 돈으로 세고, 이 블록에 돌려놓은 받은 돈만큼 뺀 금액도 줄인다
     @Query("""
             select new com.dothis.fintris.transaction.repository.BlockSpent(
-              coalesce(sum(t.amount), 0), coalesce(sum(t.blockAmount), 0))
+              coalesce(sum(coalesce(d.myShare, t.amount)), 0),
+              coalesce(sum(t.blockAmount), 0)
+                - coalesce(sum(case when d.block.id = :blockId then d.returnedAmount else 0 end), 0))
             from Transaction t
+              left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
             where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
             """)
     BlockSpent sumBlockSpent(@Param("blockId") Long blockId,
                              @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
-    // 블록 상세 소진 속도: 이 블록에 반영된 거래 금액의 날짜별 합
+    // 블록 상세 소진 속도: 이 블록에 반영된 거래 금액의 날짜별 합. 더치페이 결제는 내 몫만 센다
     @Query("""
             select new com.dothis.fintris.transaction.repository.DayTotal(
-              cast(t.occurredAt as LocalDate), coalesce(sum(t.amount), 0))
+              cast(t.occurredAt as LocalDate), coalesce(sum(coalesce(d.myShare, t.amount)), 0))
             from Transaction t
+              left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
             where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
             group by cast(t.occurredAt as LocalDate)
             """)
@@ -86,17 +91,20 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     // 취소된 거래는 빼고, 소비 제외 거래는 쓴 돈에서만 뺀다
     // v5에서는 입금도 소비 제외라 들어온 돈은 excluded 대신 본인 계좌 이동(SELF_TRANSFER)만 뺀다
     // TODO: 본인 계좌 이동 입금은 분류 전엔 카테고리가 없다. BE 판정(연동 계좌 간 같은 금액 출금·입금 짝 찾기)이 붙으면 함께 뺀다
+    // 더치페이(N-06): 거래 하나하나는 통장 금액 그대로 두고, 합계는 결제의 내 몫만 쓴 돈으로 세고 받은 돈은 들어온 돈에서 뺀다
     @Query("""
             select new com.dothis.fintris.transaction.repository.TransactionTotals(
               coalesce(sum(case when t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
-                                 and t.excluded = false then t.amount else 0 end), 0),
+                                 and t.excluded = false then coalesce(d.myShare, t.amount) else 0 end), 0),
               coalesce(sum(case when t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.IN
-                                 and (c.code is null or c.code <> 'SELF_TRANSFER') then t.amount else 0 end), 0),
+                                 and (c.code is null or c.code <> 'SELF_TRANSFER') and d.id is null
+                                 then t.amount else 0 end), 0),
               coalesce(sum(case when t.status = com.dothis.fintris.transaction.entity.TransactionStatus.PROVISIONAL
                                  then 1 else 0 end), 0),
               coalesce(sum(case when t.status = com.dothis.fintris.transaction.entity.TransactionStatus.NEEDS_REVIEW
                                  then 1 else 0 end), 0))
             from Transaction t left join t.category c
+              left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
             where t.user.id = :userId and t.occurredAt >= :from and t.occurredAt < :to and t.isCanceled = false
               and (:linkedAccountId is null or t.linkedAccount.id = :linkedAccountId)
               and (:blockId is null or t.block.id = :blockId)
@@ -106,10 +114,12 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
                                 @Param("linkedAccountId") Long linkedAccountId, @Param("blockId") Long blockId);
 
     // 소비 분석(F-01) 카테고리별 쓴 돈. 거래 목록의 쓴 돈과 같은 조건이라 합이 목록 합계와 맞는다
+    // 더치페이 결제는 내 몫만 센다
     @Query("""
             select new com.dothis.fintris.transaction.repository.CategorySpent(
-              c.id, c.code, c.name, count(t), coalesce(sum(t.amount), 0))
+              c.id, c.code, c.name, count(t), coalesce(sum(coalesce(d.myShare, t.amount)), 0))
             from Transaction t left join t.category c
+              left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
             where t.user.id = :userId and t.occurredAt >= :from and t.occurredAt < :to
               and t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
               and t.isCanceled = false and t.excluded = false
@@ -140,11 +150,12 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findSpent(@Param("userId") Long userId,
                                 @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
-    // 날짜별 쓴 돈(출금 합계, 양수). 취소·소비 제외 거래는 빼고 목록과 같은 조건을 건다
+    // 날짜별 쓴 돈(출금 합계, 양수). 취소·소비 제외 거래는 빼고 목록과 같은 조건을 건다. 더치페이 결제는 내 몫만 센다
     @Query("""
             select new com.dothis.fintris.transaction.repository.DayTotal(
-              cast(t.occurredAt as LocalDate), coalesce(sum(t.amount), 0))
+              cast(t.occurredAt as LocalDate), coalesce(sum(coalesce(d.myShare, t.amount)), 0))
             from Transaction t
+              left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
             where t.user.id = :userId and t.occurredAt >= :from and t.occurredAt < :to
               and t.direction = com.dothis.fintris.transaction.entity.TransactionDirection.OUT
               and t.isCanceled = false and t.excluded = false

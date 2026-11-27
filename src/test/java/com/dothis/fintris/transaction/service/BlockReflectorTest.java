@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import com.dothis.fintris.dutchpay.service.DutchPayRecalculator;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -39,6 +40,7 @@ class BlockReflectorTest {
     @Mock BlockRepository blockRepository;
     @Mock BlockCategoryRepository blockCategoryRepository;
     @Mock UserSettingRepository userSettingRepository;
+    @Mock DutchPayRecalculator dutchPayRecalculator;
 
     private BlockReflector reflector;
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
@@ -48,7 +50,7 @@ class BlockReflectorTest {
     void setUp() {
         ReflectionTestUtils.setField(user, "id", 1L);
         reflector = new BlockReflector(blockRepository, blockCategoryRepository, userSettingRepository,
-                new BlockTargetResolver());
+                new BlockTargetResolver(), dutchPayRecalculator);
         living = Block.builder().user(user).type(BlockType.SPENDING).name("생활비").balance(30_000L).isDefault(true)
                 .startDate(LocalDate.of(2026, 11, 1)).displayOrder(1).build();
         ReflectionTestUtils.setField(living, "id", 1L);
