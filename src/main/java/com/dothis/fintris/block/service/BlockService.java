@@ -58,6 +58,7 @@ public class BlockService {
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final WaitingFundRepository waitingFundRepository;
+    private final BlockStatusService blockStatusService;
 
     public List<BlockResponse> getBlocks(Long userId, BlockType type) {
         List<Block> blocks = (type == null)
@@ -70,8 +71,10 @@ public class BlockService {
                 .stream()
                 .collect(Collectors.groupingBy(bc -> bc.getBlock().getId()));
 
+        Map<Long, BlockStatusJudge.Judgement> statuses = blockStatusService.judgeAll(blocks);
         return blocks.stream()
-                .map(block -> BlockResponse.of(block, categoriesByBlock.getOrDefault(block.getId(), List.of())))
+                .map(block -> BlockResponse.of(block, categoriesByBlock.getOrDefault(block.getId(), List.of()),
+                        statuses.get(block.getId())))
                 .toList();
     }
 
@@ -86,7 +89,8 @@ public class BlockService {
                 .orElse(0);
 
         Block block = newBlock(user, request, 0, nextOrder, false, BlockCreatedBy.USER);
-        return BlockResponse.of(blockRepository.save(block), List.of());
+        Block saved = blockRepository.save(block);
+        return BlockResponse.of(saved, List.of(), blockStatusService.judge(saved));
     }
 
     // 블록 생성 규칙(기본값·검증)을 한곳에 둔다. 일반 생성과 초기 블록 확정(04)이 같이 쓴다
@@ -232,7 +236,7 @@ public class BlockService {
                 .toList();
         List<BlockCategory> saved = blockCategoryRepository.saveAll(mappings);
 
-        return BlockResponse.of(block, saved);
+        return BlockResponse.of(block, saved, blockStatusService.judge(block));
     }
 
     // 없으면 404, 남의 블록이면 403
@@ -246,7 +250,8 @@ public class BlockService {
     }
 
     private BlockResponse toResponse(Block block) {
-        return BlockResponse.of(block, blockCategoryRepository.findAllByBlock_Id(block.getId()));
+        return BlockResponse.of(block, blockCategoryRepository.findAllByBlock_Id(block.getId()),
+                blockStatusService.judge(block));
     }
 
     // 기한이 오늘 이전인지는 클라이언트가 새로 보낸 기한에만 검사한다.

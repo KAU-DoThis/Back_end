@@ -6,6 +6,7 @@ import com.dothis.fintris.block.dto.BlockDetailResponse;
 import com.dothis.fintris.block.dto.BlockHistoryResponse;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockRule;
+import com.dothis.fintris.block.entity.BlockStatus;
 import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.repository.BlockCategoryRepository;
 import com.dothis.fintris.block.repository.BlockRepository;
@@ -39,6 +40,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -50,6 +52,7 @@ class BlockDetailServiceTest {
     @Mock BlockTransferRepository blockTransferRepository;
     @Mock BlockCategoryRepository blockCategoryRepository;
     @Mock TransactionRepository transactionRepository;
+    @Mock BlockStatusService blockStatusService;
     @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
     @InjectMocks BlockDetailService service;
 
@@ -64,6 +67,7 @@ class BlockDetailServiceTest {
         ReflectionTestUtils.setField(block, "id", 10L);
         when(blockRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(block));
         when(blockCategoryRepository.findAllByBlock_Id(10L)).thenReturn(List.of());
+        lenient().when(blockStatusService.judge(block)).thenReturn(BlockStatusJudge.Judgement.unknown());
         return block;
     }
 
@@ -96,6 +100,40 @@ class BlockDetailServiceTest {
         // 오늘이 기간 마지막 날(남은 1일)이라 아침 잔액 100,000원이 오늘 가능 금액이다
         assertThat(detail.today()).isEqualTo(new BlockDetailResponse.Today(100_000L, 12_300L, 87_700L));
         assertThat(detail.recentTransactions()).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("주의·위험이면 상태·짧은 이유·이유 문장을 채우고, 사용형은 절약 제안·채우기 버튼을 보여 준다")
+    void statusReasonAndActions() {
+        Block living = given(Block.builder().user(user).type(BlockType.SPENDING).name("생활비").balance(87_700L)
+                .isDefault(true).startDate(today.withDayOfMonth(1)).dueDate(today)
+                .rule(new BlockRule(1_500_000L, 1, null, null, null, null, null)).displayOrder(1).build());
+        when(blockStatusService.judge(living)).thenReturn(new BlockStatusJudge.Judgement(
+                BlockStatus.CAUTION, "소진 빠름", "기간의 33%가 지났는데 50%를 썼어요. 계획보다 17%p 빨라요."));
+        when(transactionRepository.sumBlockSpent(eq(10L), any(), any())).thenReturn(new BlockSpent(0L, 0L));
+
+        BlockDetailResponse response = service.getDetail(USER_ID, 10L);
+
+        assertThat(response.block().status()).isEqualTo(BlockStatus.CAUTION);
+        assertThat(response.block().statusLabel()).isEqualTo("주의");
+        assertThat(response.block().statusSubLabel()).isEqualTo("소진 빠름");
+        assertThat(response.statusReason()).isEqualTo("기간의 33%가 지났는데 50%를 썼어요. 계획보다 17%p 빨라요.");
+        assertThat(response.actions()).containsExactly("OPEN_SAVING_SUGGESTIONS", "FILL_FROM_OTHER");
+    }
+
+    @Test
+    @DisplayName("안전이면 이유 문장과 사용형 버튼이 없다")
+    void safeHasNoReason() {
+        given(Block.builder().user(user).type(BlockType.SPENDING).name("생활비").balance(87_700L)
+                .isDefault(true).startDate(today.withDayOfMonth(1)).dueDate(today)
+                .rule(new BlockRule(1_500_000L, 1, null, null, null, null, null)).displayOrder(1).build());
+        when(transactionRepository.sumBlockSpent(eq(10L), any(), any())).thenReturn(new BlockSpent(0L, 0L));
+
+        BlockDetailResponse response = service.getDetail(USER_ID, 10L);
+
+        assertThat(response.block().status()).isEqualTo(BlockStatus.SAFE);
+        assertThat(response.statusReason()).isNull();
+        assertThat(response.actions()).isEmpty();
     }
 
     @Test
