@@ -79,7 +79,8 @@ public class BlockDetailService {
     private BlockDetailResponse goal(Block block, BlockResponse response, LocalDate today) {
         long target = block.getTargetAmount();
         long balance = block.getBalance();
-        Long monthlyTarget = block.getRule() != null ? block.getRule().monthlyTarget() : null;
+        // 정해 둔 월 확보 금액이 없으면 상태 판정과 같은 권장값을 쓴다
+        Long monthlyTarget = blockStatusService.monthlyTarget(block, today);
 
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
         long secured = blockTransferRepository.sumInSince(block.getId(), monthStart)
@@ -123,7 +124,10 @@ public class BlockDetailService {
         BlockRule rule = block.getRule();
         Long payAmount = rule != null ? rule.payAmount() : null;
         Integer payDay = rule != null ? rule.payDay() : null;
-        long shortage = payAmount != null ? Math.max(0, payAmount - block.getBalance()) : 0;
+        // 상태 판정과 같은 기준: 이번 달에 다 냈으면 부족 없음, 일부 냈으면 남은 납부액 - 잔액
+        long paid = blockStatusService.paidThisMonth(block, today);
+        long shortage = payAmount == null || paid >= payAmount ? 0
+                : Math.max(0, payAmount - paid - block.getBalance());
 
         // 모자라면 "다른 블록에서 채우기" 버튼 (03-2 이동 시트로)
         List<String> actions = shortage > 0 ? List.of("FILL_FROM_OTHER") : List.of();

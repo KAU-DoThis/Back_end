@@ -66,32 +66,41 @@ public class BlockStatusService {
                 long waitingFunds = waitingFundByUser.computeIfAbsent(userId, waitingFundRepository::sumAmountByUserId);
                 // 금액 범위 조건이면 일부만 낸 거래도 연결될 수 있어서, 이번 달에 낸 금액 합을 넘겨 부족액에서 뺀다
                 Long payAmount = rule != null ? rule.payAmount() : null;
-                long paidThisMonth = block.getId() == null || payAmount == null || payAmount <= 0 ? 0
-                        : transactionRepository.sumBlockPaidSince(block.getId(), monthStart(today));
                 yield BlockStatusJudge.fixed(block.getBalance(), payAmount,
-                        rule != null ? rule.payDay() : null, today, waitingFunds, paidThisMonth);
+                        rule != null ? rule.payDay() : null, today, waitingFunds, paidThisMonth(block, today));
             }
             case GOAL -> {
                 long target = block.getTargetAmount() != null ? block.getTargetAmount() : 0;
                 long secured = block.getId() == null ? 0
                         : blockTransferRepository.sumInSince(block.getId(), monthStart(today))
                         - blockTransferRepository.sumOutSince(block.getId(), monthStart(today));
-                yield BlockStatusJudge.goal(block.getBalance(), target, monthlyTarget(block, target, today),
+                yield BlockStatusJudge.goal(block.getBalance(), target, monthlyTarget(block, today),
                         block.getDueDate(), today, secured);
             }
         };
     }
 
-    // 월 확보 금액을 정하지 않았으면 기한까지 남은 달로 나눈 권장값으로 본다
-    private Long monthlyTarget(Block block, long target, LocalDate today) {
+    // 목표형 실제 월 확보 금액: 정해 둔 값이 우선, 없으면 기한까지 남은 달로 나눈 권장값
+    // 상태 판정과 블록 상세(이번 달 더 확보할 금액, 예상 달성일)가 같은 값을 쓰게 여기 한 곳에서 정한다
+    public Long monthlyTarget(Block block, LocalDate today) {
         BlockRule rule = block.getRule();
         if (rule != null && rule.monthlyTarget() != null) {
             return rule.monthlyTarget();
         }
-        if (block.getDueDate() == null) {
+        if (block.getDueDate() == null || block.getTargetAmount() == null) {
             return null;
         }
-        return BlockCalculator.recommendedMonthlyTarget(target, block.getBalance(), today, block.getDueDate());
+        return BlockCalculator.recommendedMonthlyTarget(block.getTargetAmount(), block.getBalance(), today,
+                block.getDueDate());
+    }
+
+    // 고정지출형 이번 달에 낸 금액 합 (취소 거래 제외). 상태 판정과 블록 상세 부족액이 같은 값을 쓴다
+    public long paidThisMonth(Block block, LocalDate today) {
+        BlockRule rule = block.getRule();
+        if (block.getId() == null || rule == null || rule.payAmount() == null || rule.payAmount() <= 0) {
+            return 0;
+        }
+        return transactionRepository.sumBlockPaidSince(block.getId(), monthStart(today));
     }
 
     private static LocalDateTime monthStart(LocalDate today) {

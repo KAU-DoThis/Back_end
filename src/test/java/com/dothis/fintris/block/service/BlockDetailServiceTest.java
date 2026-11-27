@@ -159,6 +159,42 @@ class BlockDetailServiceTest {
     }
 
     @Test
+    @DisplayName("고정지출형 부족액은 상태 판정과 같이 이번 달에 낸 금액을 뺀다")
+    void fixedShortageAfterPartialPayment() {
+        Block rent = given(Block.builder().user(user).type(BlockType.FIXED).name("월세").balance(100_000L)
+                .isDefault(false).startDate(LocalDate.of(2026, 1, 1))
+                .rule(new BlockRule(null, null, null, 25, 600_000L, null, null)).displayOrder(2).build());
+        // 600,000원 중 400,000원 냈고 잔액 100,000원 → 100,000원 부족
+        when(blockStatusService.paidThisMonth(eq(rent), any())).thenReturn(400_000L);
+
+        BlockDetailResponse response = service.getDetail(USER_ID, 10L);
+
+        assertThat(((BlockDetailResponse.FixedDetail) response.detail()).shortage()).isEqualTo(100_000);
+        assertThat(response.actions()).containsExactly("FILL_FROM_OTHER");
+
+        // 다 냈으면 잔액이 0원이어도 부족 없음, 채우기 버튼도 없음
+        when(blockStatusService.paidThisMonth(eq(rent), any())).thenReturn(600_000L);
+        BlockDetailResponse paid = service.getDetail(USER_ID, 10L);
+        assertThat(((BlockDetailResponse.FixedDetail) paid.detail()).shortage()).isZero();
+        assertThat(paid.actions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("목표형: 월 확보 금액을 정하지 않았으면 상태 판정과 같은 권장값으로 이번 달 필요 금액을 낸다")
+    void goalUsesEffectiveMonthlyTarget() {
+        Block travel = given(Block.builder().user(user).type(BlockType.GOAL).name("여행").balance(0L)
+                .targetAmount(1_000_000L).isDefault(false).startDate(today.withDayOfMonth(1))
+                .dueDate(today.plusMonths(9)).rule(BlockRule.empty()).displayOrder(3).build());
+        when(blockStatusService.monthlyTarget(eq(travel), any())).thenReturn(100_000L);
+        lenient().when(blockTransferRepository.findHistory(eq(10L), any())).thenReturn(new SliceImpl<>(List.of()));
+
+        BlockDetailResponse.GoalDetail detail =
+                (BlockDetailResponse.GoalDetail) service.getDetail(USER_ID, 10L).detail();
+
+        assertThat(detail.thisMonth()).isEqualTo(new BlockDetailResponse.ThisMonth(100_000L, 0, 100_000));
+    }
+
+    @Test
     @DisplayName("고정지출형 블록 기록은 반영된 출금을 납부 기록으로 보여 준다")
     void fixedHistory() {
         Block rent = Block.builder().user(user).type(BlockType.FIXED).name("월세").balance(0L).isDefault(false)
