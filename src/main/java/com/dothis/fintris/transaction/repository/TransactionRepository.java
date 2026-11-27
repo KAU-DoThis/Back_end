@@ -48,8 +48,16 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @EntityGraph(attributePaths = "linkedAccount")
     Slice<Transaction> findByBlock_IdOrderByOccurredAtDescIdDesc(Long blockId, Pageable pageable);
 
-    // 블록 상세 "오늘 쓴 돈": 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
+    // 블록 상태 판정: 고정지출 블록에 이번 달 낸 금액 합. 취소 거래는 블록 연결이 풀리기 전이라도 뺀다
+    @Query("""
+            select coalesce(sum(t.amount), 0) from Transaction t
+            where t.block.id = :blockId and t.occurredAt >= :from and t.isCanceled = false
+            """)
+    long sumBlockPaidSince(@Param("blockId") Long blockId, @Param("from") LocalDateTime from);
+
+    // 블록 상세 "오늘 쓴 돈"·상태 판정 소진액: 거래 금액 합(spent)과 이 블록에서 실제로 뺀 금액 합(deducted)
     // 더치페이 결제는 내 몫만 쓴 돈으로 세고, 이 블록에 돌려놓은 받은 돈만큼 뺀 금액도 줄인다
+    // 취소 거래는 블록 연결이 풀리기 전(동기화 중)에도 빼서 소진 속도가 잠깐 앞서 나가지 않게 한다
     @Query("""
             select new com.dothis.fintris.transaction.repository.BlockSpent(
               coalesce(sum(coalesce(d.myShare, t.amount)), 0),
@@ -57,7 +65,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
                 - coalesce(sum(case when d.block.id = :blockId then d.returnedAmount else 0 end), 0))
             from Transaction t
               left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
-            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to and t.isCanceled = false
             """)
     BlockSpent sumBlockSpent(@Param("blockId") Long blockId,
                              @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
@@ -68,7 +76,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
               cast(t.occurredAt as LocalDate), coalesce(sum(coalesce(d.myShare, t.amount)), 0))
             from Transaction t
               left join com.dothis.fintris.dutchpay.entity.DutchPayTransaction d on d.transaction = t
-            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to
+            where t.block.id = :blockId and t.occurredAt >= :from and t.occurredAt < :to and t.isCanceled = false
             group by cast(t.occurredAt as LocalDate)
             """)
     List<DayTotal> sumBlockSpentByDay(@Param("blockId") Long blockId,

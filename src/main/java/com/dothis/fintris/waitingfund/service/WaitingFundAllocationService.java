@@ -7,6 +7,7 @@ import com.dothis.fintris.block.entity.BlockTransfer;
 import com.dothis.fintris.block.entity.TransferReason;
 import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.repository.BlockTransferRepository;
+import com.dothis.fintris.block.service.BlockStatusService;
 import com.dothis.fintris.block.service.BlockTransferService;
 import com.dothis.fintris.block.simulation.BlockSimulationService;
 import com.dothis.fintris.block.simulation.SimulateRequest;
@@ -38,6 +39,7 @@ public class WaitingFundAllocationService {
     private final BlockTransferService blockTransferService;
     private final BlockRepository blockRepository;
     private final BlockTransferRepository blockTransferRepository;
+    private final BlockStatusService blockStatusService;
 
     @Transactional
     public AllocationResponse allocate(Long userId, Long waitingFundId, AllocationRequest request) {
@@ -92,7 +94,8 @@ public class WaitingFundAllocationService {
         return new AllocationResponse(
                 new AllocationResponse.FundBalance(fund.getId(), fund.getAmount()),
                 simulation.blockDeltas().keySet().stream()
-                        .map(id -> TransferResponse.BlockBalance.from(simulation.blocks().get(id)))
+                        .map(id -> simulation.blocks().get(id))
+                        .map(block -> TransferResponse.BlockBalance.from(block, blockStatusService.judge(block).status()))
                         .toList(),
                 blockTransferService.dailyGuide(userId));
     }

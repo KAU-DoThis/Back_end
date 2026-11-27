@@ -67,6 +67,7 @@ class BlockProposalServiceTest {
     @Mock UserSettingRepository userSettingRepository;
     @Mock UserService userService;
     @Mock TransactionRepository transactionRepository;
+    @Mock BlockStatusService blockStatusService;
 
     private BlockProposalService service;
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
@@ -77,10 +78,10 @@ class BlockProposalServiceTest {
         ReflectionTestUtils.setField(user, "id", USER_ID);
         // 블록 생성 규칙은 실제 BlockService 것을 그대로 쓴다
         BlockService blockService = new BlockService(blockRepository, blockCategoryRepository,
-                blockTransferRepository, categoryRepository, userRepository, waitingFundRepository);
+                blockTransferRepository, categoryRepository, userRepository, waitingFundRepository, blockStatusService);
         service = new BlockProposalService(blockService, userService, blockRepository, blockTransferRepository,
                 waitingFundRepository, linkedAccountRepository, userRepository, userSettingRepository,
-                transactionRepository, new RecurringPaymentDetector());
+                transactionRepository, new RecurringPaymentDetector(), blockStatusService);
 
         setting = UserSetting.builder().user(user).tutorialDone(true).blocksConfirmed(false).build();
         lenient().when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
@@ -89,6 +90,7 @@ class BlockProposalServiceTest {
                 .thenReturn(Optional.empty());
         lenient().when(waitingFundRepository.save(any(WaitingFund.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(userService.getOnboardingStep(USER_ID)).thenReturn(OnboardingStep.DONE);
+        lenient().when(blockStatusService.judge(any())).thenReturn(BlockStatusJudge.Judgement.unknown());
     }
 
     @Test
