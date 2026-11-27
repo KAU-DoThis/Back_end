@@ -15,6 +15,8 @@ import com.dothis.fintris.block.repository.BlockCategoryRepository;
 import com.dothis.fintris.block.repository.BlockRepository;
 import com.dothis.fintris.block.repository.BlockTransferRepository;
 import com.dothis.fintris.block.simulation.ImpactCalculator;
+import com.dothis.fintris.dutchpay.entity.DutchPayTransaction;
+import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.home.service.DailyGuideCalculator;
 import com.dothis.fintris.transaction.dto.TransactionResponse;
@@ -57,6 +59,7 @@ public class BlockDetailService {
     private final BlockCategoryRepository blockCategoryRepository;
     private final TransactionRepository transactionRepository;
     private final BlockStatusService blockStatusService;
+    private final DutchPayTransactionRepository dutchPayTransactionRepository;
 
     public BlockDetailResponse getDetail(Long userId, Long blockId) {
         Block block = findOwnedBlock(userId, blockId);
@@ -159,12 +162,24 @@ public class BlockDetailService {
                 days,
                 new BlockDetailResponse.Today(available, spent, available - spent),
                 burn(block, monthlyAmount, today),
-                transactionRepository.findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(block.getId()).stream()
-                        .limit(RECENT_TRANSACTIONS).map(TransactionResponse::from).toList());
+                recentTransactions(block));
         // 주의·위험이면 "절약 제안 보기"와 "다른 블록에서 채우기" 버튼 (02)
         List<String> actions = status.status() == BlockStatus.SAFE
                 ? List.of() : List.of("OPEN_SAVING_SUGGESTIONS", "FILL_FROM_OTHER");
         return new BlockDetailResponse(response, null, actions, ruleText(block), detail);
+    }
+
+    // 최근 거래도 거래 목록처럼 더치페이에 묶였는지 보여준다
+    private List<TransactionResponse> recentTransactions(Block block) {
+        List<Transaction> recent = transactionRepository.findTop12ByBlock_IdOrderByOccurredAtDescIdDesc(block.getId())
+                .stream().limit(RECENT_TRANSACTIONS).toList();
+        if (recent.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, DutchPayTransaction> links = new HashMap<>();
+        dutchPayTransactionRepository.findAllByTransaction_IdIn(recent.stream().map(Transaction::getId).toList())
+                .forEach(link -> links.put(link.getTransaction().getId(), link));
+        return recent.stream().map(t -> TransactionResponse.from(t, links.get(t.getId()))).toList();
     }
 
     private String paceLabel(Long delay) {

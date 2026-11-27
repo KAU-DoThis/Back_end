@@ -16,6 +16,7 @@ import com.dothis.fintris.transaction.entity.TransactionDirection;
 import com.dothis.fintris.transaction.entity.TransactionSource;
 import com.dothis.fintris.transaction.entity.TransactionStatus;
 import com.dothis.fintris.transaction.repository.BlockSpent;
+import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.user.entity.AuthProvider;
 import com.dothis.fintris.user.entity.User;
@@ -52,6 +53,7 @@ class BlockDetailServiceTest {
     @Mock BlockCategoryRepository blockCategoryRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock BlockStatusService blockStatusService;
+    @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
     @InjectMocks BlockDetailService service;
 
     private final User user = User.builder().email("user@example.com").authProvider(AuthProvider.EMAIL).build();
