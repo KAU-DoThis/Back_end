@@ -230,7 +230,10 @@ public class MonthlyReportService {
     }
 
     List<Item> items(Long userId, Period period, LocalDate from, List<SavingGoal> confirmedGoals) {
-        List<Block> blocks = blockRepository.findAllByUser_IdAndDeletedAtIsNullOrderByDisplayOrderAsc(userId);
+        // 그 달에 있었던 블록: 지금 있거나, 그 달 첫날 이후에 삭제한 블록 (소프트 삭제라 기록이 남아 있다)
+        List<Block> blocks = blockRepository.findAllByUser_IdOrderByDisplayOrderAsc(userId).stream()
+                .filter(b -> b.getDeletedAt() == null || !b.getDeletedAt().toLocalDate().isBefore(period.from()))
+                .toList();
         long confirmed = confirmedGoals.stream()
                 .mapToLong(g -> g.getConfirmedSaving() != null ? g.getConfirmedSaving() : 0).sum();
         long expected = confirmedGoals.stream()
@@ -244,8 +247,9 @@ public class MonthlyReportService {
                 new Item("GOAL", "목표 달성률", ReportScoreCalculator.GOAL_WEIGHT, goalRate(blocks, period)));
     }
 
-    // 고정지출 확보: 그 달 납부일(+허용 일수)까지 납부액만큼 낸 고정지출 수 ÷ 납부일이 지난 고정지출 수
+    // 고정지출 확보: 그 달 납부일(+허용 일수)까지 납부액만큼 낸 고정지출 수 ÷ 판정할 수 있는 고정지출 수
     private Integer fixedRate(List<Block> blocks, Period period, LocalDate from) {
+        LocalDate today = LocalDate.now(KST);
         int due = 0;
         int paid = 0;
         for (Block block : blocks) {
@@ -255,20 +259,24 @@ public class MonthlyReportService {
                 continue;
             }
             LocalDate payDate = period.month().atDay(Math.min(rule.payDay(), period.month().lengthOfMonth()));
-            // 아직 납부일이 안 왔거나, 쓰기 시작하기 전 납부일은 세지 않는다
-            if (payDate.isAfter(period.to()) || payDate.isBefore(from)) {
+            // 아직 납부일이 안 왔거나, 쓰기 시작하기 전이거나, 블록을 만들기 전 납부일은 세지 않는다
+            if (payDate.isAfter(period.to()) || payDate.isBefore(from) || block.getStartDate().isAfter(payDate)) {
                 continue;
             }
+            // 허용 일수만큼 납부일 뒤까지 본다. 다음 달로 넘어가도 그 납부로 인정한다 (9/30 + 3일 → 10/3까지)
             int window = rule.matchCondition() != null && rule.matchCondition().dayWindow() != null
                     ? rule.matchCondition().dayWindow() : 0;
-            LocalDate until = payDate.plusDays(window);
-            if (until.isAfter(period.to())) {
-                until = period.to();
-            }
+            LocalDate deadline = payDate.plusDays(window);
+            LocalDate until = deadline.isAfter(today) ? today : deadline;
             long amount = transactionRepository.sumBlockSpent(block.getId(), period.from().atStartOfDay(),
                     until.plusDays(1).atStartOfDay()).spent();
+            boolean ok = amount >= rule.payAmount();
+            // 아직 허용 기간이 남았는데 안 냈으면 미납으로 판정하지 않는다
+            if (!ok && deadline.isAfter(today)) {
+                continue;
+            }
             due++;
-            if (amount >= rule.payAmount()) {
+            if (ok) {
                 paid++;
             }
         }

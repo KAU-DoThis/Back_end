@@ -73,7 +73,7 @@ class MonthlyReportServiceTest {
         lenient().when(transactionRepository.sumSpentByCategory(eq(USER_ID), any(), any())).thenReturn(List.of());
         lenient().when(savingGoalRepository.findAllByUser_IdAndStatusAndEndDateBetween(eq(USER_ID),
                 eq(SavingGoalStatus.CONFIRMED), any(), any())).thenReturn(List.of());
-        lenient().when(blockRepository.findAllByUser_IdAndDeletedAtIsNullOrderByDisplayOrderAsc(USER_ID))
+        lenient().when(blockRepository.findAllByUser_IdOrderByDisplayOrderAsc(USER_ID))
                 .thenReturn(List.of());
         usingSince(LocalDate.of(2026, 7, 1));
     }
@@ -176,7 +176,7 @@ class MonthlyReportServiceTest {
         Block rent = block(2L, BlockType.FIXED, "월세", new BlockRule(null, null, null, 25, 600_000L, null, null), null);
         Block travel = block(4L, BlockType.GOAL, "여행", new BlockRule(null, null, 200_000L, null, null, null, null),
                 800_000L);
-        when(blockRepository.findAllByUser_IdAndDeletedAtIsNullOrderByDisplayOrderAsc(USER_ID))
+        when(blockRepository.findAllByUser_IdOrderByDisplayOrderAsc(USER_ID))
                 .thenReturn(List.of(living, rent, travel));
         // 월세: 9/25까지 600,000원 납부 → 100%
         when(transactionRepository.sumBlockSpent(2L, SEP_1, LocalDateTime.of(2026, 9, 26, 0, 0)))
@@ -205,6 +205,44 @@ class MonthlyReportServiceTest {
         // (100×30 + 100×30 + 50×25) ÷ 85 = 7,250 ÷ 85 = 85.3 → 85
         assertThat(score.total()).isEqualTo(85);
         assertThat(score.note()).isNull();
+    }
+
+    private Integer fixedRate() {
+        return service.getMonthly(USER_ID, SEP).score().items().stream()
+                .filter(i -> i.key().equals("FIXED")).findFirst().orElseThrow().rate();
+    }
+
+    @Test
+    @DisplayName("고정지출: 허용 일수가 다음 달로 넘어가도 그 기간의 납부를 인정한다 (9/30 + 3일 → 10/3까지)")
+    void fixedWindowIntoNextMonth() {
+        BlockRule.MatchCondition match = new BlockRule.MatchCondition(null, null, null, null, 3, null);
+        Block rent = block(2L, BlockType.FIXED, "월세", new BlockRule(null, null, null, 30, 600_000L, match, null), null);
+        when(blockRepository.findAllByUser_IdOrderByDisplayOrderAsc(USER_ID)).thenReturn(List.of(rent));
+        when(transactionRepository.sumBlockSpent(2L, SEP_1, LocalDateTime.of(2026, 10, 4, 0, 0)))
+                .thenReturn(new BlockSpent(600_000L, 600_000L));
+        lenient().when(transactionRepository.sumBlockSpent(eq(2L), eq(AUG_1), any())).thenReturn(new BlockSpent(0L, 0L));
+
+        assertThat(fixedRate()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("고정지출: 그 달 이후에 만든 블록은 빼고, 그 달 이후에 삭제한 블록은 넣는다")
+    void fixedBlocksThatExistedThatMonth() {
+        Block later = block(2L, BlockType.FIXED, "통신비", new BlockRule(null, null, null, 15, 55_000L, null, null), null);
+        ReflectionTestUtils.setField(later, "startDate", LocalDate.of(2026, 10, 1));
+        Block deletedAfter = block(3L, BlockType.FIXED, "월세", new BlockRule(null, null, null, 25, 600_000L, null, null), null);
+        ReflectionTestUtils.setField(deletedAfter, "deletedAt", LocalDateTime.of(2026, 10, 5, 12, 0));
+        Block deletedBefore = block(5L, BlockType.FIXED, "보험", new BlockRule(null, null, null, 10, 30_000L, null, null), null);
+        ReflectionTestUtils.setField(deletedBefore, "deletedAt", LocalDateTime.of(2026, 8, 20, 12, 0));
+        when(blockRepository.findAllByUser_IdOrderByDisplayOrderAsc(USER_ID))
+                .thenReturn(List.of(later, deletedAfter, deletedBefore));
+        when(transactionRepository.sumBlockSpent(3L, SEP_1, LocalDateTime.of(2026, 9, 26, 0, 0)))
+                .thenReturn(new BlockSpent(600_000L, 600_000L));
+        lenient().when(transactionRepository.sumBlockSpent(eq(3L), eq(AUG_1), any())).thenReturn(new BlockSpent(0L, 0L));
+        lenient().when(transactionRepository.sumBlockSpent(eq(5L), eq(AUG_1), any())).thenReturn(new BlockSpent(0L, 0L));
+
+        // 9월 대상은 삭제 전 월세 하나뿐이고 냈으니 100%
+        assertThat(fixedRate()).isEqualTo(100);
     }
 
     @Test
