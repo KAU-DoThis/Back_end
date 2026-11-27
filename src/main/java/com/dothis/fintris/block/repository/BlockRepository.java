@@ -14,6 +14,9 @@ public interface BlockRepository extends JpaRepository<Block, Long> {
 
     List<Block> findAllByUser_IdAndDeletedAtIsNullOrderByDisplayOrderAsc(Long userId);
 
+    // 월간 리포트: 지난 달 실적에는 그 뒤에 삭제한 블록도 들어가야 해서 삭제된 블록까지 가져온다
+    List<Block> findAllByUser_IdOrderByDisplayOrderAsc(Long userId);
+
     List<Block> findAllByUser_IdAndTypeAndDeletedAtIsNullOrderByDisplayOrderAsc(Long userId, BlockType type);
 
     // 주인 확인(403)은 서비스에서 하므로 user 조건 없이 찾는다

@@ -8,6 +8,7 @@ import com.dothis.fintris.block.entity.BlockRule;
 import com.dothis.fintris.block.entity.BlockStatus;
 import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.service.BlockCalculator;
+import com.dothis.fintris.block.service.BlockStatusJudge;
 import com.dothis.fintris.category.entity.Category;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -55,7 +56,8 @@ public record BlockResponse(
         }
     }
 
-    public static BlockResponse of(Block block, List<BlockCategory> blockCategories) {
+    // 상태는 저장값이 아니라 조회할 때 판정한 값을 쓴다 (BlockStatusService, #58)
+    public static BlockResponse of(Block block, List<BlockCategory> blockCategories, BlockStatusJudge.Judgement status) {
         Long capacity = BlockCalculator.capacity(block);
         return new BlockResponse(
                 block.getId(),
@@ -72,9 +74,9 @@ public record BlockResponse(
                 block.getDueDate(),
                 BlockCalculator.dDay(block, LocalDate.now(KST)),
                 block.getRule(),
-                block.getStatus(),
-                block.getStatus().getLabel(),
-                BlockCalculator.statusSubLabel(block),
+                status.status(),
+                status.status().getLabel(),
+                status.subLabel(),
                 block.getDisplayOrder(),
                 block.getCreatedBy(),
                 block.getVersion(),
