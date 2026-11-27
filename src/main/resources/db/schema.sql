@@ -283,6 +283,38 @@ CREATE TABLE receivables (
     CONSTRAINT fk_receivables_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 더치페이 (N-06). 거래는 그대로 두고, 묶인 결제·받은 돈은 여기서만 연결한다
+CREATE TABLE dutch_pays (
+    dutch_pay_id        BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id             BIGINT       NOT NULL,
+    my_share            BIGINT       NULL COMMENT '사용자가 정한 내 몫 합. NULL이면 결제 합 - 받은 돈(0 밑으로는 안 감)',
+    waiting_fund_id     BIGINT       NULL COMMENT '받은 돈 중 블록에 돌려놓고 남은 돈을 넣은 나눌 돈',
+    buffer_amount       BIGINT       NULL COMMENT '그 나눌 돈에 넣은 금액. 수정·해제 때 이만큼 되돌린다',
+    version             BIGINT       NOT NULL DEFAULT 0 COMMENT '@Version 낙관적 잠금',
+    created_at          DATETIME(6)  NOT NULL,
+    updated_at          DATETIME(6)  NOT NULL,
+    PRIMARY KEY (dutch_pay_id),
+    KEY idx_dutch_pays_user (user_id),
+    CONSTRAINT fk_dutch_pays_user         FOREIGN KEY (user_id)         REFERENCES users (user_id),
+    CONSTRAINT fk_dutch_pays_waiting_fund FOREIGN KEY (waiting_fund_id) REFERENCES waiting_funds (waiting_fund_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE dutch_pay_transactions (
+    dutch_pay_transaction_id BIGINT      NOT NULL AUTO_INCREMENT,
+    dutch_pay_id             BIGINT      NOT NULL,
+    transaction_id           BIGINT      NOT NULL COMMENT '결제(OUT) 또는 받은 돈(IN). 거래 하나는 더치페이 하나에만',
+    my_share                 BIGINT      NULL COMMENT '결제 건의 내 몫(받은 돈을 결제 금액 비율로 뺀 값). 받은 돈 건은 NULL',
+    block_id                 BIGINT      NULL COMMENT '결제 건에서 받은 돈을 돌려놓은 블록(그 결제가 반영된 블록). 블록 미반영·받은 돈 건은 NULL',
+    returned_amount          BIGINT      NULL COMMENT '그 블록에 돌려놓은 금액(결제 금액 - 내 몫). 수정·해제 때 이만큼 되돌린다',
+    created_at               DATETIME(6) NOT NULL,
+    PRIMARY KEY (dutch_pay_transaction_id),
+    UNIQUE KEY uk_dutch_pay_transactions_transaction (transaction_id),
+    KEY idx_dutch_pay_transactions_dutch_pay (dutch_pay_id),
+    CONSTRAINT fk_dutch_pay_transactions_dutch_pay   FOREIGN KEY (dutch_pay_id)   REFERENCES dutch_pays (dutch_pay_id),
+    CONSTRAINT fk_dutch_pay_transactions_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id),
+    CONSTRAINT fk_dutch_pay_transactions_block       FOREIGN KEY (block_id)       REFERENCES blocks (block_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------------
 -- 6. 절약 목표 (F-03, F-05)
 -- ---------------------------------------------------------------------

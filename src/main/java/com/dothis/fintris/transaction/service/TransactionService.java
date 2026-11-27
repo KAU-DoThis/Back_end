@@ -5,6 +5,9 @@ import com.dothis.fintris.account.entity.LinkedAccount;
 import com.dothis.fintris.account.repository.LinkedAccountRepository;
 import com.dothis.fintris.category.entity.Category;
 import com.dothis.fintris.category.repository.CategoryRepository;
+import com.dothis.fintris.dutchpay.entity.DutchPayTransaction;
+import com.dothis.fintris.dutchpay.repository.DutchPayTransactionRepository;
+import com.dothis.fintris.dutchpay.service.DutchPayRecalculator;
 import com.dothis.fintris.global.exception.GeneralException;
 import com.dothis.fintris.transaction.code.TransactionErrorCode;
 import com.dothis.fintris.transaction.dto.TransactionListFilter;
@@ -38,6 +41,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -51,9 +55,16 @@ public class TransactionService {
     private final LinkedAccountRepository linkedAccountRepository;
     private final CategoryRepository categoryRepository;
     private final BlockReflector blockReflector;
+    private final DutchPayTransactionRepository dutchPayTransactionRepository;
+    private final DutchPayRecalculator dutchPayRecalculator;
 
     public TransactionResponse getTransaction(Long userId, Long transactionId) {
-        return TransactionResponse.from(ownedTransaction(userId, transactionId));
+        return withDutchPay(ownedTransaction(userId, transactionId));
+    }
+
+    private TransactionResponse withDutchPay(Transaction transaction) {
+        return TransactionResponse.from(transaction,
+                dutchPayTransactionRepository.findByTransaction_Id(transaction.getId()).orElse(null));
     }
 
     // 카테고리가 바뀌면 연결된 블록이 달라질 수 있어 블록 반영을 다시 맞춘다. 블록 충돌이면 409 BLOCK_VERSION_CONFLICT
@@ -65,7 +76,7 @@ public class TransactionService {
                 .orElseThrow(() -> GeneralException.of(TransactionErrorCode.TRANSACTION_CATEGORY_NOT_FOUND));
         transaction.changeCategoryByUser(category);
         blockReflector.reconcile(transaction, blockReflector.blocksConfirmedAt(userId).orElse(null));
-        return TransactionResponse.from(transaction);
+        return withDutchPay(transaction);
     }
 
     // 확인 필요 거래 처리 (09 내역). KEEP은 확정, DELETE는 블록에서 뺀 돈을 돌려주고 지운다
@@ -78,7 +89,7 @@ public class TransactionService {
         }
         if (action == TransactionReviewRequest.Action.KEEP) {
             transaction.confirmReview();
-            return new TransactionReviewResponse(transactionId, action, TransactionResponse.from(transaction));
+            return new TransactionReviewResponse(transactionId, action, withDutchPay(transaction));
         }
         if (transaction.getSource() == TransactionSource.CODEF) {
             throw GeneralException.of(TransactionErrorCode.TRANSACTION_NOT_DELETABLE);
@@ -86,6 +97,8 @@ public class TransactionService {
         // 취소로 표시하면 반영 대상이 아니게 되어 reconcile이 블록에 뺀 금액을 돌려준다
         transaction.cancel();
         blockReflector.reconcile(transaction, blockReflector.blocksConfirmedAt(userId).orElse(null));
+        // 더치페이에 묶여 있으면 묶음에서 빼고 남은 거래로 다시 계산한다
+        dutchPayRecalculator.unlink(transaction);
         transactionRepository.delete(transaction);
         return new TransactionReviewResponse(transactionId, action, null);
     }
@@ -138,10 +151,13 @@ public class TransactionService {
         if (transactions.isEmpty()) {
             return List.of();
         }
+        Map<Long, DutchPayTransaction> dutchPayLinks = dutchPayTransactionRepository
+                .findAllByTransaction_IdIn(transactions.stream().map(Transaction::getId).toList()).stream()
+                .collect(Collectors.toMap(link -> link.getTransaction().getId(), Function.identity()));
         Map<LocalDate, List<Item>> itemsByDate = new LinkedHashMap<>();
         for (Transaction transaction : transactions) {
             itemsByDate.computeIfAbsent(transaction.getOccurredAt().toLocalDate(), date -> new ArrayList<>())
-                    .add(Item.of(TransactionResponse.from(transaction)));
+                    .add(Item.of(TransactionResponse.from(transaction, dutchPayLinks.get(transaction.getId()))));
         }
 
         // 최신순이라 마지막 거래가 가장 이른 날짜다

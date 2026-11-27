@@ -4,6 +4,7 @@ import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockCategory;
 import com.dothis.fintris.block.repository.BlockCategoryRepository;
 import com.dothis.fintris.block.repository.BlockRepository;
+import com.dothis.fintris.dutchpay.service.DutchPayRecalculator;
 import com.dothis.fintris.transaction.entity.Transaction;
 import com.dothis.fintris.transaction.entity.TransactionDirection;
 import com.dothis.fintris.user.entity.UserSetting;
@@ -27,6 +28,7 @@ public class BlockReflector {
     private final BlockCategoryRepository blockCategoryRepository;
     private final UserSettingRepository userSettingRepository;
     private final BlockTargetResolver blockTargetResolver;
+    private final DutchPayRecalculator dutchPayRecalculator;
 
     // 블록에 반영해야 하는 거래인지: 출금, 소비 제외·취소가 아님, 초기 블록 확정 뒤에 일어남
     public boolean shouldReflect(Transaction transaction, LocalDateTime blocksConfirmedAt) {
@@ -59,6 +61,8 @@ public class BlockReflector {
         if (shouldReflect(transaction, blocksConfirmedAt)) {
             reflect(transaction);
         }
+        // 더치페이에 묶인 결제면 바뀐 블록·금액으로 돌려놓은 돈을 다시 맞춘다
+        dutchPayRecalculator.recalculateFor(transaction);
         return before != transaction.getBlock() || !Objects.equals(beforeAmount, transaction.getBlockAmount());
     }
 
