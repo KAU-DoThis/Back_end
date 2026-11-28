@@ -61,6 +61,7 @@ public class BlockProposalService {
     private final UserSettingRepository userSettingRepository;
     private final TransactionRepository transactionRepository;
     private final RecurringPaymentDetector recurringPaymentDetector;
+    private final BlockStatusService blockStatusService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final List<String> ADDABLE_PRESETS = List.of("SAVING", "EMERGENCY", "TRAVEL");
@@ -248,7 +249,7 @@ public class BlockProposalService {
 
         setting.confirmBlocks();
         return new BlockProposalConfirmResponse(
-                blocks.stream().map(block -> BlockResponse.of(block, List.of())).toList(),
+                blocks.stream().map(block -> BlockResponse.of(block, List.of(), blockStatusService.judge(block))).toList(),
                 waitingFunds,
                 userService.getOnboardingStep(userId));
     }

@@ -8,6 +8,7 @@ import com.dothis.fintris.block.dto.BlockHistoryResponse;
 import com.dothis.fintris.block.dto.BlockResponse;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockRule;
+import com.dothis.fintris.block.entity.BlockStatus;
 import com.dothis.fintris.block.entity.BlockTransfer;
 import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.repository.BlockCategoryRepository;
@@ -57,24 +58,29 @@ public class BlockDetailService {
     private final BlockTransferRepository blockTransferRepository;
     private final BlockCategoryRepository blockCategoryRepository;
     private final TransactionRepository transactionRepository;
+    private final BlockStatusService blockStatusService;
     private final DutchPayTransactionRepository dutchPayTransactionRepository;
 
     public BlockDetailResponse getDetail(Long userId, Long blockId) {
         Block block = findOwnedBlock(userId, blockId);
-        BlockResponse response = BlockResponse.of(block, blockCategoryRepository.findAllByBlock_Id(blockId));
+        BlockStatusJudge.Judgement status = blockStatusService.judge(block);
+        BlockResponse response = BlockResponse.of(block, blockCategoryRepository.findAllByBlock_Id(blockId), status);
         LocalDate today = LocalDate.now(KST);
-        return switch (block.getType()) {
+        BlockDetailResponse detail = switch (block.getType()) {
             case GOAL -> goal(block, response, today);
             case FIXED -> fixed(block, response, today);
-            case SPENDING -> spending(block, response, today);
+            case SPENDING -> spending(block, response, today, status);
         };
+        // "왜 주의인가요?" 문장. 안전이면 null (템플릿, AI 문장은 AI 쪽 API가 생기면 교체)
+        return new BlockDetailResponse(detail.block(), status.reason(), detail.actions(), detail.ruleText(), detail.detail());
     }
 
     // 02-1: 달성률, 이번 달 확보, 언제 다 모일까요?, 들어온 돈
     private BlockDetailResponse goal(Block block, BlockResponse response, LocalDate today) {
         long target = block.getTargetAmount();
         long balance = block.getBalance();
-        Long monthlyTarget = block.getRule() != null ? block.getRule().monthlyTarget() : null;
+        // 정해 둔 월 확보 금액이 없으면 상태 판정과 같은 권장값을 쓴다
+        Long monthlyTarget = blockStatusService.monthlyTarget(block, today);
 
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
         long secured = blockTransferRepository.sumInSince(block.getId(), monthStart)
@@ -118,7 +124,10 @@ public class BlockDetailService {
         BlockRule rule = block.getRule();
         Long payAmount = rule != null ? rule.payAmount() : null;
         Integer payDay = rule != null ? rule.payDay() : null;
-        long shortage = payAmount != null ? Math.max(0, payAmount - block.getBalance()) : 0;
+        // 상태 판정과 같은 기준: 이번 달에 다 냈으면 부족 없음, 일부 냈으면 남은 납부액 - 잔액
+        long paid = blockStatusService.paidThisMonth(block, today);
+        long shortage = payAmount == null || paid >= payAmount ? 0
+                : Math.max(0, payAmount - paid - block.getBalance());
 
         // 모자라면 "다른 블록에서 채우기" 버튼 (03-2 이동 시트로)
         List<String> actions = shortage > 0 ? List.of("FILL_FROM_OTHER") : List.of();
@@ -141,7 +150,8 @@ public class BlockDetailService {
     }
 
     // 02: 기간, 남은 비율·일수, 오늘 가능·씀·남음 (홈 dailyGuide와 같은 계산)
-    private BlockDetailResponse spending(Block block, BlockResponse response, LocalDate today) {
+    private BlockDetailResponse spending(Block block, BlockResponse response, LocalDate today,
+                                         BlockStatusJudge.Judgement status) {
         Long monthlyAmount = block.getRule() != null ? block.getRule().monthlyAmount() : null;
         long days = block.getDueDate() != null ? DailyGuideCalculator.remainingDays(today, block.getDueDate()) : 0;
         // "오늘 가능"은 아침 기준이라 하루 동안 그대로다: 오늘 이 블록에서 뺀 돈을 되돌린 잔액으로 계산한다
@@ -157,7 +167,10 @@ public class BlockDetailService {
                 new BlockDetailResponse.Today(available, spent, available - spent),
                 burn(block, monthlyAmount, today),
                 recentTransactions(block));
-        return new BlockDetailResponse(response, null, List.of(), ruleText(block), detail);
+        // 주의·위험이면 "절약 제안 보기"와 "다른 블록에서 채우기" 버튼 (02)
+        List<String> actions = status.status() == BlockStatus.SAFE
+                ? List.of() : List.of("OPEN_SAVING_SUGGESTIONS", "FILL_FROM_OTHER");
+        return new BlockDetailResponse(response, null, actions, ruleText(block), detail);
     }
 
     // 최근 거래도 거래 목록처럼 더치페이에 묶였는지 보여준다

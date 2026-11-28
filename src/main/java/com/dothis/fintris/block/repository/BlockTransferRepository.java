@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 public interface BlockTransferRepository extends JpaRepository<BlockTransfer, Long> {
@@ -20,6 +21,10 @@ public interface BlockTransferRepository extends JpaRepository<BlockTransfer, Lo
 
     @Query("select coalesce(sum(t.amount), 0) from BlockTransfer t where t.fromBlock.id = :blockId and t.createdAt >= :from")
     long sumOutSince(@Param("blockId") Long blockId, @Param("from") LocalDateTime from);
+
+    // 월간 리포트 "블록 배분": 절약분 나눌 돈에서 블록으로 옮긴 기록 (받은 블록 이름을 같이 쓴다)
+    @Query("select t from BlockTransfer t join fetch t.toBlock where t.fromWaitingFund.id in :fundIds")
+    List<BlockTransfer> findAllocationsFrom(@Param("fundIds") Collection<Long> fundIds);
 
     // 블록 기록 (02 화면 "들어온 돈", "전체 보기"). 들어오고 나간 이동을 최근 순으로
     @Query("select t from BlockTransfer t where t.toBlock.id = :blockId or t.fromBlock.id = :blockId "

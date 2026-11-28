@@ -89,14 +89,15 @@ public class SavingGoalConfirmService {
             return;
         }
 
-        long[] actual = new long[goals.size()];
+        SpentStats[] actual = new SpentStats[goals.size()];
         long[] saving = new long[goals.size()];
         long total = 0;
         for (int i = 0; i < goals.size(); i++) {
             SavingGoal goal = goals.get(i);
             actual[i] = savingGoalService.spent(userId, goal.getCategory().getId(), goal.getStartDate(),
                     goal.getEndDate().plusDays(1));
-            saving[i] = SavingGoalCalculator.confirmedSaving(goal.getBaseAmount(), actual[i]);
+            // 확정은 횟수가 아니라 금액으로 한다. 횟수를 넘겨도 기준보다 적게 썼으면 그만큼 인정한다
+            saving[i] = SavingGoalCalculator.confirmedSaving(goal.getBaseAmount(), actual[i].amount());
             total += saving[i];
         }
 
@@ -135,7 +136,8 @@ public class SavingGoalConfirmService {
 
         Long fundId = fund != null ? fund.getId() : null;
         for (int i = 0; i < goals.size(); i++) {
-            goals.get(i).confirm(actual[i], saving[i], saving[i] > 0 ? fundId : null, now);
+            goals.get(i).confirm(actual[i].amount(), Math.toIntExact(actual[i].count()), saving[i],
+                    saving[i] > 0 ? fundId : null, now);
         }
         // TODO: 확정 알림(SAVING_CONFIRMED)은 알림(F-22)이 붙으면 보낸다 (김지현)
     }

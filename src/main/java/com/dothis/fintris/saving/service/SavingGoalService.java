@@ -13,7 +13,6 @@ import com.dothis.fintris.saving.dto.SavingGoalResponse;
 import com.dothis.fintris.saving.entity.SavingGoal;
 import com.dothis.fintris.saving.entity.SavingGoalStatus;
 import com.dothis.fintris.saving.repository.SavingGoalRepository;
-import com.dothis.fintris.transaction.repository.CategorySpent;
 import com.dothis.fintris.transaction.repository.TransactionRepository;
 import com.dothis.fintris.user.code.UserErrorCode;
 import com.dothis.fintris.user.entity.User;
@@ -54,7 +53,10 @@ public class SavingGoalService {
     @Transactional
     public SavingGoalResponse create(Long userId, SavingGoalCreateRequest request) {
         LocalDate today = LocalDate.now(KST);
-        if (request.targetAmount() < 0) {
+        // 목표는 횟수나 금액 중 하나로 정한다. 둘 다 없거나 음수면 저장하지 않는다
+        boolean byCount = request.targetCount() != null;
+        if (byCount ? request.targetCount() < 0
+                : request.targetAmount() == null || request.targetAmount() < 0) {
             throw GeneralException.of(SavingGoalErrorCode.SAVING_GOAL_INVALID_AMOUNT);
         }
         LocalDate startDate = request.startDate() != null ? request.startDate() : today;
@@ -72,12 +74,16 @@ public class SavingGoalService {
         }
         Block linkedBlock = request.linkedBlockId() == null ? null : linkedBlock(userId, request.linkedBlockId());
 
-        long baseAmount = SavingGoalCalculator.baseAmount(spent(userId, category.getId(),
-                SavingGoalCalculator.baseFrom(startDate), SavingGoalCalculator.baseTo(startDate)));
-        // 목표가 기준 이상이면 아낄 돈이 없다. FE는 "예상 절약액 없음" 안내를 띄운다
-        if (request.targetAmount() >= baseAmount) {
+        // 기준은 지난달 한 달의 지출과 결제 횟수 (팀 결정 11/25)
+        SpentStats base = spent(userId, category.getId(),
+                SavingGoalCalculator.baseFrom(startDate), SavingGoalCalculator.baseTo(startDate));
+        // 횟수가 기준 이상이거나 금액이 기준 이상이면 아낄 돈이 없다. FE는 "예상 절약액 없음" 안내를 띄운다
+        if (byCount ? request.targetCount() >= base.count() : request.targetAmount() >= base.amount()) {
             throw GeneralException.of(SavingGoalErrorCode.SAVING_GOAL_NO_EXPECTED_SAVING);
         }
+        long targetAmount = byCount
+                ? SavingGoalCalculator.targetAmountFor(base.amount(), base.count(), request.targetCount())
+                : request.targetAmount();
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> GeneralException.of(UserErrorCode.USER_NOT_FOUND));
@@ -86,8 +92,10 @@ public class SavingGoalService {
                 .user(user)
                 .category(category)
                 .activeKey(SavingGoal.activeKeyOf(userId, category.getId()))
-                .baseAmount(baseAmount)
-                .targetAmount(request.targetAmount())
+                .baseAmount(base.amount())
+                .baseCount(Math.toIntExact(base.count()))
+                .targetAmount(targetAmount)
+                .targetCount(request.targetCount())
                 .startDate(startDate)
                 .endDate(endDate)
                 .linkedBlock(linkedBlock)
@@ -157,24 +165,29 @@ public class SavingGoalService {
         return goal.getStatus();
     }
 
-    // 확정됐으면 저장한 실제 지출액, 진행 중이면 시작일부터 오늘까지 쓴 돈
-    private long spentSoFar(SavingGoal goal, LocalDate today) {
+    // 확정됐으면 저장한 실제 지출·횟수, 진행 중이면 시작일부터 오늘까지 쓴 돈·횟수
+    private SpentStats spentSoFar(SavingGoal goal, LocalDate today) {
         if (goal.getActualAmount() != null) {
-            return goal.getActualAmount();
+            return new SpentStats(goal.getActualAmount(), goal.getActualCount() != null ? goal.getActualCount() : 0);
         }
         if (goal.getStatus() != SavingGoalStatus.ACTIVE || today.isBefore(goal.getStartDate())) {
-            return 0;
+            return SpentStats.EMPTY;
         }
         LocalDate until = today.isAfter(goal.getEndDate()) ? goal.getEndDate() : today;
         return spent(goal.getUser().getId(), goal.getCategory().getId(), goal.getStartDate(), until.plusDays(1));
     }
 
-    // 소비 분석과 같은 조건(취소·소비 제외 거래 빼고 출금만)으로 센 카테고리 지출. to는 포함하지 않는다
-    long spent(Long userId, Long categoryId, LocalDate from, LocalDate to) {
+    // 소비 분석과 같은 조건(취소·소비 제외 거래 빼고 출금만)으로 센 카테고리 지출과 결제 건수. to는 포함하지 않는다
+    SpentStats spent(Long userId, Long categoryId, LocalDate from, LocalDate to) {
         return transactionRepository.sumSpentByCategory(userId, from.atStartOfDay(), to.atStartOfDay()).stream()
                 .filter(row -> categoryId.equals(row.categoryId()))
-                .mapToLong(CategorySpent::amount)
-                .sum();
+                .findFirst()
+                .map(row -> new SpentStats(nullToZero(row.amount()), nullToZero(row.count())))
+                .orElse(SpentStats.EMPTY);
+    }
+
+    private static long nullToZero(Long value) {
+        return value != null ? value : 0;
     }
 
     private Block linkedBlock(Long userId, Long blockId) {

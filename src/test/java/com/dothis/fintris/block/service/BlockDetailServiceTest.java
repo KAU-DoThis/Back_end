@@ -6,6 +6,7 @@ import com.dothis.fintris.block.dto.BlockDetailResponse;
 import com.dothis.fintris.block.dto.BlockHistoryResponse;
 import com.dothis.fintris.block.entity.Block;
 import com.dothis.fintris.block.entity.BlockRule;
+import com.dothis.fintris.block.entity.BlockStatus;
 import com.dothis.fintris.block.entity.BlockType;
 import com.dothis.fintris.block.repository.BlockCategoryRepository;
 import com.dothis.fintris.block.repository.BlockRepository;
@@ -39,6 +40,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -50,6 +52,7 @@ class BlockDetailServiceTest {
     @Mock BlockTransferRepository blockTransferRepository;
     @Mock BlockCategoryRepository blockCategoryRepository;
     @Mock TransactionRepository transactionRepository;
+    @Mock BlockStatusService blockStatusService;
     @Mock DutchPayTransactionRepository dutchPayTransactionRepository;
     @InjectMocks BlockDetailService service;
 
@@ -64,6 +67,7 @@ class BlockDetailServiceTest {
         ReflectionTestUtils.setField(block, "id", 10L);
         when(blockRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(block));
         when(blockCategoryRepository.findAllByBlock_Id(10L)).thenReturn(List.of());
+        lenient().when(blockStatusService.judge(block)).thenReturn(BlockStatusJudge.Judgement.unknown());
         return block;
     }
 
@@ -99,6 +103,40 @@ class BlockDetailServiceTest {
     }
 
     @Test
+    @DisplayName("주의·위험이면 상태·짧은 이유·이유 문장을 채우고, 사용형은 절약 제안·채우기 버튼을 보여 준다")
+    void statusReasonAndActions() {
+        Block living = given(Block.builder().user(user).type(BlockType.SPENDING).name("생활비").balance(87_700L)
+                .isDefault(true).startDate(today.withDayOfMonth(1)).dueDate(today)
+                .rule(new BlockRule(1_500_000L, 1, null, null, null, null, null)).displayOrder(1).build());
+        when(blockStatusService.judge(living)).thenReturn(new BlockStatusJudge.Judgement(
+                BlockStatus.CAUTION, "소진 빠름", "기간의 33%가 지났는데 50%를 썼어요. 계획보다 17%p 빨라요."));
+        when(transactionRepository.sumBlockSpent(eq(10L), any(), any())).thenReturn(new BlockSpent(0L, 0L));
+
+        BlockDetailResponse response = service.getDetail(USER_ID, 10L);
+
+        assertThat(response.block().status()).isEqualTo(BlockStatus.CAUTION);
+        assertThat(response.block().statusLabel()).isEqualTo("주의");
+        assertThat(response.block().statusSubLabel()).isEqualTo("소진 빠름");
+        assertThat(response.statusReason()).isEqualTo("기간의 33%가 지났는데 50%를 썼어요. 계획보다 17%p 빨라요.");
+        assertThat(response.actions()).containsExactly("OPEN_SAVING_SUGGESTIONS", "FILL_FROM_OTHER");
+    }
+
+    @Test
+    @DisplayName("안전이면 이유 문장과 사용형 버튼이 없다")
+    void safeHasNoReason() {
+        given(Block.builder().user(user).type(BlockType.SPENDING).name("생활비").balance(87_700L)
+                .isDefault(true).startDate(today.withDayOfMonth(1)).dueDate(today)
+                .rule(new BlockRule(1_500_000L, 1, null, null, null, null, null)).displayOrder(1).build());
+        when(transactionRepository.sumBlockSpent(eq(10L), any(), any())).thenReturn(new BlockSpent(0L, 0L));
+
+        BlockDetailResponse response = service.getDetail(USER_ID, 10L);
+
+        assertThat(response.block().status()).isEqualTo(BlockStatus.SAFE);
+        assertThat(response.statusReason()).isNull();
+        assertThat(response.actions()).isEmpty();
+    }
+
+    @Test
     @DisplayName("고정지출형: 납부 기록과 제때 낸 연속 개월 수를 채운다 (늦게 낸 달에서 멈춘다)")
     void fixedPayments() {
         Block rent = given(Block.builder().user(user).type(BlockType.FIXED).name("월세").balance(600_000L)
@@ -118,6 +156,42 @@ class BlockDetailServiceTest {
         assertThat(detail.recentPayments().getFirst()).isEqualTo(new BlockDetailResponse.Payment(
                 LocalDate.of(2026, 10, 24), "김*수", "국민은행 ••1234", 600_000L, true));
         assertThat(detail.recentPayments().get(2).onTime()).isFalse();
+    }
+
+    @Test
+    @DisplayName("고정지출형 부족액은 상태 판정과 같이 이번 달에 낸 금액을 뺀다")
+    void fixedShortageAfterPartialPayment() {
+        Block rent = given(Block.builder().user(user).type(BlockType.FIXED).name("월세").balance(100_000L)
+                .isDefault(false).startDate(LocalDate.of(2026, 1, 1))
+                .rule(new BlockRule(null, null, null, 25, 600_000L, null, null)).displayOrder(2).build());
+        // 600,000원 중 400,000원 냈고 잔액 100,000원 → 100,000원 부족
+        when(blockStatusService.paidThisMonth(eq(rent), any())).thenReturn(400_000L);
+
+        BlockDetailResponse response = service.getDetail(USER_ID, 10L);
+
+        assertThat(((BlockDetailResponse.FixedDetail) response.detail()).shortage()).isEqualTo(100_000);
+        assertThat(response.actions()).containsExactly("FILL_FROM_OTHER");
+
+        // 다 냈으면 잔액이 0원이어도 부족 없음, 채우기 버튼도 없음
+        when(blockStatusService.paidThisMonth(eq(rent), any())).thenReturn(600_000L);
+        BlockDetailResponse paid = service.getDetail(USER_ID, 10L);
+        assertThat(((BlockDetailResponse.FixedDetail) paid.detail()).shortage()).isZero();
+        assertThat(paid.actions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("목표형: 월 확보 금액을 정하지 않았으면 상태 판정과 같은 권장값으로 이번 달 필요 금액을 낸다")
+    void goalUsesEffectiveMonthlyTarget() {
+        Block travel = given(Block.builder().user(user).type(BlockType.GOAL).name("여행").balance(0L)
+                .targetAmount(1_000_000L).isDefault(false).startDate(today.withDayOfMonth(1))
+                .dueDate(today.plusMonths(9)).rule(BlockRule.empty()).displayOrder(3).build());
+        when(blockStatusService.monthlyTarget(eq(travel), any())).thenReturn(100_000L);
+        lenient().when(blockTransferRepository.findHistory(eq(10L), any())).thenReturn(new SliceImpl<>(List.of()));
+
+        BlockDetailResponse.GoalDetail detail =
+                (BlockDetailResponse.GoalDetail) service.getDetail(USER_ID, 10L).detail();
+
+        assertThat(detail.thisMonth()).isEqualTo(new BlockDetailResponse.ThisMonth(100_000L, 0, 100_000));
     }
 
     @Test

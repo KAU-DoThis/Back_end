@@ -29,8 +29,10 @@ public class SavingGoalController {
 
     @Operation(summary = "절약 목표 생성 (12)",
             description = """
-                    기준 지출액(직전 3개월 평균)은 서버가 계산한다. 기간을 비우면 오늘부터 1개월.
-                    - 목표 ≥ 기준: SAVING_GOAL_NO_EXPECTED_SAVING ("예상 절약액 없음" 안내)
+                    기준(지난달 지출·결제 횟수)은 서버가 계산한다. 기간을 비우면 오늘부터 1개월.
+                    - 목표는 targetCount(횟수) 또는 targetAmount(금액)로 정한다. 횟수로 보내면 목표 금액 = 지난달 지출 × 목표 횟수 ÷ 지난달 횟수
+                    - 목표 ≥ 지난달: SAVING_GOAL_NO_EXPECTED_SAVING ("예상 절약액 없음" 안내)
+                    - 확정은 금액 기준: 지난달 지출 - 기간 중 실제 지출
                     - 같은 카테고리에 진행 중인 목표가 있으면 SAVING_GOAL_DUPLICATE_CATEGORY
                     - linkedBlockId는 내 목표형 블록만""")
     @PostMapping

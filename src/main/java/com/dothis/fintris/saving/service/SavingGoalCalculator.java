@@ -4,25 +4,36 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 
 // 절약 목표 계산 (기능명세서 F-03). 금액은 원 단위 정수로만 계산한다
+// 기준은 팀 결정(11/25)에 따라 "지난달"이다. 절약 후보도 지난달보다 늘어난 만큼 줄이도록 제안한다
 public final class SavingGoalCalculator {
-
-    static final int BASE_MONTHS = 3; // 기준 지출액 = 직전 3개월 평균
 
     private SavingGoalCalculator() {
     }
 
-    // 기준 지출액을 셀 기간: 시작일이 있는 달의 직전 3개월 (달력 월)
+    // 기준을 셀 기간: 시작일이 있는 달의 직전 달 한 달 (달력 월)
     public static LocalDate baseFrom(LocalDate startDate) {
-        return YearMonth.from(startDate).minusMonths(BASE_MONTHS).atDay(1);
+        return YearMonth.from(startDate).minusMonths(1).atDay(1);
     }
 
     public static LocalDate baseTo(LocalDate startDate) {
         return YearMonth.from(startDate).atDay(1);
     }
 
-    // 3개월 합 ÷ 3, 원 단위 내림
-    public static long baseAmount(long spentInBaseMonths) {
-        return Math.max(0, spentInBaseMonths) / BASE_MONTHS;
+    // 1회 평균 금액 = 기준 금액 ÷ 기준 횟수, 내림. 지난달에 쓴 적이 없으면 null
+    public static Long averageAmount(long baseAmount, long baseCount) {
+        if (baseCount <= 0) {
+            return null;
+        }
+        return baseAmount / baseCount;
+    }
+
+    // 횟수로 정한 목표를 금액으로 바꾼다 = 기준 금액 × 목표 횟수 ÷ 기준 횟수, 내림
+    // 1회 평균을 먼저 내림하지 않고 한 번에 나눠서, 목표 횟수가 기준과 같으면 기준 금액과 정확히 같아진다
+    public static long targetAmountFor(long baseAmount, long baseCount, long targetCount) {
+        if (baseCount <= 0) {
+            return 0;
+        }
+        return Math.multiplyExact(baseAmount, targetCount) / baseCount;
     }
 
     // 예상 절약액 = 기준 - 목표 (0 미만이면 0)

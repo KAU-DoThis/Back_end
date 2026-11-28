@@ -18,6 +18,11 @@ public interface SavingGoalRepository extends JpaRepository<SavingGoal, Long> {
     List<SavingGoal> findAllByUser_IdAndStatusInOrderByCreatedAtDescIdDesc(Long userId,
                                                                           Collection<SavingGoalStatus> statuses);
 
+    // 월간 리포트: 그 달에 끝나 확정된 목표
+    @EntityGraph(attributePaths = "category")
+    List<SavingGoal> findAllByUser_IdAndStatusAndEndDateBetween(Long userId, SavingGoalStatus status,
+                                                                LocalDate from, LocalDate to);
+
     // 확정 대상: 기간이 끝난(종료일이 오늘 이전) 진행 중 목표
     @EntityGraph(attributePaths = {"user", "category"})
     List<SavingGoal> findAllByStatusAndEndDateBefore(SavingGoalStatus status, LocalDate today);
